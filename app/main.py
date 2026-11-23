@@ -81,6 +81,7 @@ def poll_once():
     try:
         w = weather.current()
         row["outdoor_temp"] = w["temp"]
+        row["extra"] = weather.reading_extras(w)
         _errors.pop("weather", None)
     except Exception as e:
         _errors["weather"] = str(e)[:200]
@@ -115,7 +116,8 @@ async def bright_loop():
 
 def backfill_step():
     from . import backfill
-    if hive.is_configured() and hive.last_nodes and not db.get_state("backfill", {}).get("done"):
+    st = db.get_state("backfill", {})
+    if hive.is_configured() and hive.last_nodes and not (st.get("done") and st.get("weather_done") and st.get("weather_version") == 2):
         backfill.run(hive)
 
 
@@ -251,7 +253,7 @@ def status():
         "hive_configured": hive.is_configured(),
         "tuya_configured": tuya.is_configured(),
         "devices": all_devices(),
-        "weather": w,
+        "weather": {k: v for k, v in (w or {}).items() if k != "hourly"} if w else None,
         "presence": presence(),
         "lights_signal": lights_signal(all_devices(), presence()),
         "hold": bool(db.get_state("hold", False)),
@@ -270,6 +272,14 @@ def insights():
 def routine():
     from . import routine as r
     return r.build()
+
+
+@app.get("/api/forecast")
+def forecast():
+    try:
+        return weather.current()
+    except Exception as e:
+        raise HTTPException(502, f"Weather unavailable: {e}")
 
 
 @app.get("/api/history")

@@ -26,6 +26,10 @@ with db._lock:
         CREATE TABLE IF NOT EXISTS weather_history (ts INTEGER PRIMARY KEY, outdoor_temp REAL);
         """
     )
+    cols = {r[1] for r in db._conn.execute("PRAGMA table_info(weather_history)")}
+    for c in ("wind REAL", "solar REAL", "humidity REAL"):
+        if c.split()[0] not in cols:
+            db._conn.execute(f"ALTER TABLE weather_history ADD COLUMN {c}")
     db._conn.commit()
 
 
@@ -63,14 +67,17 @@ def hive_history_chunk(hive, start: datetime, end: datetime) -> list:
 def weather_history(start: datetime, end: datetime) -> int:
     """Hourly outdoor temperature from the Open-Meteo archive (free, no key)."""
     r = requests.get("https://archive-api.open-meteo.com/v1/archive", params={
-        "latitude": LAT, "longitude": LON, "hourly": "temperature_2m", "timezone": "UTC",
+        "latitude": LAT, "longitude": LON, "timezone": "UTC", "wind_speed_unit": "mph",
+        "hourly": "temperature_2m,wind_speed_10m,shortwave_radiation,relative_humidity_2m",
         "start_date": start.date().isoformat(), "end_date": end.date().isoformat()}, timeout=60)
     r.raise_for_status()
     h = r.json()["hourly"]
-    rows = [(int(datetime.fromisoformat(t).replace(tzinfo=timezone.utc).timestamp()), v)
-            for t, v in zip(h["time"], h["temperature_2m"]) if v is not None]
+    rows = [(int(datetime.fromisoformat(t).replace(tzinfo=timezone.utc).timestamp()), v, w, sol, hum)
+            for t, v, w, sol, hum in zip(h["time"], h["temperature_2m"], h["wind_speed_10m"],
+                                          h["shortwave_radiation"], h["relative_humidity_2m"]) if v is not None]
     with db._lock:
-        db._conn.executemany("INSERT OR REPLACE INTO weather_history VALUES (?,?)", rows)
+        db._conn.executemany("INSERT OR REPLACE INTO weather_history (ts, outdoor_temp, wind, solar, humidity) "
+                             "VALUES (?,?,?,?,?)", rows)
         db._conn.commit()
     return len(rows)
 
@@ -78,13 +85,13 @@ def weather_history(start: datetime, end: datetime) -> int:
 def run(hive) -> dict:
     """Step backwards a week at a time from where we got to. Stops after 4 empty weeks in a row (end of Hive's history)."""
     st = db.get_state("backfill", {"cursor": None, "empty_run": 0, "done": False, "count": 0, "oldest": None})
-    if st.get("done"):
+    if st.get("done") and st.get("weather_done") and st.get("weather_version") == 2:
         return st
     now = datetime.now(timezone.utc)
     cursor = datetime.fromtimestamp(st["cursor"], timezone.utc) if st["cursor"] else now
     limit = now - timedelta(days=365 * MAX_YEARS)
     try:
-        for _ in range(20):                     # up to 20 weeks per run, then let the app breathe
+        for _ in range(0 if st.get("done") else 20):                     # up to 20 weeks per run, then let the app breathe
             start = cursor - timedelta(days=CHUNK_DAYS)
             pts = hive_history_chunk(hive, start, cursor)
             if pts:
@@ -109,6 +116,8 @@ def run(hive) -> dict:
     db.set_state("backfill", st)
 
     # Weather for whatever span of Hive history we've got (archive lags ~5 days; recent days come from the live feed).
+    if st.get("weather_version") != 2:
+        st.pop("weather_done_to", None); st.pop("weather_done", None); st["weather_version"] = 2
     if st.get("oldest") and not st.get("weather_done_to") or (st.get("done") and not st.get("weather_done")):
         try:
             oldest = datetime.fromtimestamp(st["oldest"], timezone.utc)

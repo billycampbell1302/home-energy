@@ -75,7 +75,12 @@ function render() {
     $('mode').textContent = modes[h.mode] || h.mode || '';
     $('boost-off').style.display = h.mode === 'BOOST' ? 'inline-block' : 'none';
   }
-  if (S.weather) $('outdoor').textContent = `Outside ${S.weather.temp.toFixed(1)}°`;
+  if (S.weather) {
+    const w = S.weather;
+    $('outdoor').innerHTML = `Outside ${w.temp.toFixed(1)}°` + (w.feels_like != null ? ` (feels ${Math.round(w.feels_like)}°)` : '') +
+      (w.wind != null ? `<br>Wind ${Math.round(w.wind)} mph ${w.wind_dir || ''}${w.gusts > w.wind + 10 ? `, gusts ${Math.round(w.gusts)}` : ''}` : '') +
+      (w.solar > 50 ? ` · ☀️ sun` : '');
+  }
 
   // Home only shows problems that affect it right now (heating / lights). Others appear on the Summary tab.
   const errs = Object.entries(S.errors || {}).filter(([k]) => k === 'hive' || k === 'tuya');
