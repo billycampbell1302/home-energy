@@ -315,6 +315,28 @@ async function loadTariffForm() {
   $('tariff-form').innerHTML = TARIFF_FIELDS.map(([k, label]) =>
     `<label class="muted" style="font-size:13px">${label}</label><input id="t-${k}" value="${esc(e.tariff[k])}" ${k.includes('night_s') || k.includes('night_e') ? '' : 'inputmode="decimal"'}>`).join('');
 }
+async function tariffFromMeter() {
+  $('meter-tariff-msg').textContent = 'Reading your meter’s prices from Bright…';
+  try {
+    const r = await api('/api/tariff/from-meter');
+    const v = r.values, keys = Object.keys(v);
+    if (!keys.length) {
+      $('meter-tariff-msg').innerHTML = 'Your meter didn’t report any prices yet. Fill them in from your bill for now.' +
+        `<details><summary>Details</summary><div class="url">${esc(JSON.stringify(r.raw).slice(0, 1500))}</div></details>`;
+      return;
+    }
+    for (const k of keys) { const el = $('t-' + k); if (el) el.value = v[k]; }
+    const e7 = v.day_rate != null;
+    $('meter-tariff-msg').innerHTML = (e7
+      ? `Found Economy 7 prices: day <b>${v.day_rate}p</b>, night <b>${v.night_rate}p</b>`
+      : v.single_rate != null ? `Found one electricity price: <b>${v.single_rate}p</b> (your meter may not report the day/night split – check your bill)` : 'No electricity prices found')
+      + (v.e7_standing != null ? `, standing charge <b>${v.e7_standing}p/day</b>` : '')
+      + (v.gas_rate != null ? `. Gas <b>${v.gas_rate}p</b>` + (v.gas_standing != null ? `, standing <b>${v.gas_standing}p/day</b>` : '') : '')
+      + `.<br>Check these against your bill, add your cheap-hours times and a single-rate price to compare, then tap <b>Save tariff</b>.` +
+      `<details><summary>What the meter sent</summary><div class="url">${esc(JSON.stringify(r.raw).slice(0, 1500))}</div></details>`;
+  } catch (e) { $('meter-tariff-msg').textContent = e.message; }
+}
+
 async function saveTariff() {
   const body = {};
   for (const [k] of TARIFF_FIELDS) body[k] = k.startsWith('night_') ? $('t-' + k).value.trim() : parseFloat($('t-' + k).value);

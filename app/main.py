@@ -403,6 +403,16 @@ def energy(days: int = 30):
     return a
 
 
+@app.get("/api/tariff/from-meter")
+async def tariff_from_meter():
+    if not bright.is_configured():
+        raise HTTPException(400, "Connect Bright first (Setup → Smart meter).")
+    try:
+        return await asyncio.to_thread(bright.meter_tariff)
+    except Exception as e:
+        raise HTTPException(502, f"Couldn't read the tariff from Bright: {e}")
+
+
 class Tariff(BaseModel):
     day_rate: float
     night_rate: float

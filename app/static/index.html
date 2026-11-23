@@ -210,7 +210,9 @@
 
     <div class="card">
       <h2>5 · Your tariff</h2>
-      <p class="muted">From your British Gas bill or app, in pence. Standing charges are pence per day.</p>
+      <p class="muted">Pence per kWh; standing charges are pence per day.</p>
+      <button onclick="tariffFromMeter()" style="margin-bottom:8px">Fill in from my meter</button>
+      <p class="muted" id="meter-tariff-msg"></p>
       <div id="tariff-form"></div>
       <button class="primary" onclick="saveTariff()">Save tariff</button>
     </div>

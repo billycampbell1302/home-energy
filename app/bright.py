@@ -98,6 +98,67 @@ class BrightClient:
         return added
 
 
+    def meter_tariff(self) -> dict:
+        """Reads the prices the supplier has programmed into the smart meter (via Bright's cost feeds).
+
+        The response format isn't well documented, so this collects every unit rate and standing charge it can
+        find and works out pence. Returns what it found plus the raw data (shown on the Setup page if unsure).
+        """
+        found, raw = {}, {}
+        for res in self._get("/resource"):
+            c = res.get("classifier", "")
+            if c not in ("electricity.consumption.cost", "gas.consumption.cost"):
+                continue
+            fuel = c.split(".")[0]
+            try:
+                j = self._get(f"/resource/{res['resourceId']}/tariff")
+            except Exception as e:
+                raw[fuel] = f"error: {e}"
+                continue
+            raw[fuel] = j
+            rates, standing = set(), []
+            _collect(j, rates, standing)
+            found[fuel] = {"rates": sorted(_pence(r) for r in rates), "standing": [_pence(x) for x in standing[:1]]}
+        out = {}
+        e = found.get("electricity")
+        if e:
+            if len(e["rates"]) >= 2:          # Economy 7: two prices -> higher is day, lower is night
+                out["day_rate"], out["night_rate"] = e["rates"][-1], e["rates"][0]
+            elif e["rates"]:
+                out["single_rate"] = e["rates"][0]
+            if e["standing"]:
+                out["e7_standing"] = out["single_standing"] = e["standing"][0]
+        g = found.get("gas")
+        if g:
+            if g["rates"]:
+                out["gas_rate"] = g["rates"][0]
+            if g["standing"]:
+                out["gas_standing"] = g["standing"][0]
+        return {"values": out, "found": found, "raw": raw}
+
+
+def _collect(node, rates: set, standing: list, key: str = ""):
+    """Walks the JSON picking out numbers stored under rate-like and standing-charge-like keys."""
+    if isinstance(node, dict):
+        for k, v in node.items():
+            _collect(v, rates, standing, k.lower())
+    elif isinstance(node, list):
+        for v in node:
+            _collect(v, rates, standing, key)
+    elif isinstance(node, (int, float)) and not isinstance(node, bool) and node > 0:
+        if any(x in key for x in ("vat", "discount", "threshold", "percent")):
+            return
+        if "standing" in key:
+            standing.append(float(node))
+        elif key in ("rate", "unitrate", "price", "tierrate") or key.endswith("rate"):
+            rates.add(float(node))
+
+
+def _pence(v: float) -> float:
+    """Bright reports pounds (e.g. 0.2632); the dashboard uses pence (26.32)."""
+    return round(v * 100, 2) if v < 2 else round(v, 2)
+
+
 bright = BrightClient()
 
 
