@@ -27,7 +27,7 @@ document.querySelectorAll('nav button').forEach((b) => b.onclick = () => {
   document.querySelectorAll('nav button').forEach((x) => x.classList.toggle('active', x === b));
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
   $('title').textContent = b.dataset.tab[0].toUpperCase() + b.dataset.tab.slice(1);
-  if (b.dataset.tab === 'history') { loadHistory(24); loadEvents(); }
+  if (b.dataset.tab === 'history') { loadRoutine(); loadHistory(24); loadEvents(); }
   if (b.dataset.tab === 'energy') loadEnergy(30);
   if (b.dataset.tab === 'setup') { loadSetup(); loadVersion(); loadTariffForm(); }
 });
@@ -175,6 +175,32 @@ async function loadHistory(hours) {
   let on = 0;
   rows.forEach((r, i) => { if (r.boiler_on && rows[i + 1]) on += rows[i + 1].ts - r.ts; });
   $('boiler-hours').textContent = `Boiler ran for about ${(on / 3600).toFixed(1)} hours in this period.`;
+}
+
+function heatmap(grid, days, color) {
+  const cw = 13, ch = 13, L = 30, T = 14, W = L + 24 * cw, H = T + 7 * ch + 2;
+  let cells = '';
+  grid.forEach((row, d) => row.forEach((v, h) => {
+    const fill = v == null ? '#1f232b' : color.replace('A', (0.12 + 0.88 * v).toFixed(2));
+    cells += `<rect x="${L + h * cw}" y="${T + d * ch}" width="${cw - 1.5}" height="${ch - 1.5}" rx="2" fill="${fill}"><title>${days[d]} ${String(h).padStart(2, '0')}:00 – ${v == null ? 'no data' : Math.round(v * 100) + '%'}</title></rect>`;
+  }));
+  let labels = days.map((d, i) => `<text x="0" y="${T + i * ch + 10}" fill="#9aa1ad" font-size="9">${d}</text>`).join('');
+  for (const h of [0, 6, 12, 18]) labels += `<text x="${L + h * cw}" y="10" fill="#9aa1ad" font-size="9">${String(h).padStart(2, '0')}</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;margin:6px 0 4px">${labels}${cells}</svg>`;
+}
+
+async function loadRoutine() {
+  const r = await api('/api/routine');
+  const c = r.collected;
+  $('routine-meta').textContent = c.since
+    ? `Collecting since ${new Date(c.since * 1000).toLocaleDateString('en-GB', {day: 'numeric', month: 'short'})}: ${c.readings} readings and ${c.presence_events} arrivals/departures so far.`
+    : 'No data yet.';
+  const block = (title, lines, grid, color) => `<div style="margin:12px 0 4px"><b>${esc(title)}</b></div>` +
+    lines.map((l) => `<div class="muted">${esc(l)}</div>`).join('') + heatmap(grid, r.days, color);
+  $('routine').innerHTML =
+    r.people.map((p) => block(`${p.name} – at home`, p.summary, p.grid, 'rgba(62,207,142,A)')).join('') +
+    block('Flat empty (nobody in, no kids/guests)', r.empty.summary, r.empty.grid, 'rgba(77,163,255,A)') +
+    block('Heating on (boiler firing)', r.heating.summary, r.heating.grid, 'rgba(255,138,61,A)');
 }
 
 async function loadEvents() {

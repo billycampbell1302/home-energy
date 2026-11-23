@@ -217,6 +217,12 @@ def insights():
     return ins.build(hive.is_configured(), tuya.is_configured())
 
 
+@app.get("/api/routine")
+def routine():
+    from . import routine as r
+    return r.build()
+
+
 @app.get("/api/history")
 def history(hours: int = 24):
     return db.readings_since(min(hours, 24 * 14) * 3600)
