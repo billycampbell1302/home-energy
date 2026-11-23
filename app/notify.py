@@ -25,6 +25,7 @@ TYPES = {
     "tariff_change": "Energy prices changed",
     "service_down": "Something stopped working",
     "arrivals": "Arrivals and departures",
+    "daily": "Daily report (8am)",
     "weekly": "Weekly summary (Sunday evening)",
     "monthly": "Monthly report",
 }

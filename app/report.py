@@ -56,3 +56,48 @@ def summary_text(r: dict) -> str:
         if r["heating_empty_hours"] >= 1:
             parts.append(f"{r['heating_empty_hours']:.0f}h with nobody home")
     return f"{parts[0]} " + " · ".join(parts[1:]) if len(parts) > 1 else f"{r['label']}: not enough data yet."
+
+
+def daily_text() -> tuple[str, str]:
+    """Yesterday at a glance, for the 8am notification. Returns (title, body)."""
+    import json
+    from datetime import timedelta
+    y = date.today() - timedelta(days=1)
+    s = int(datetime(y.year, y.month, y.day).timestamp())
+    e = s + 86400
+    with db._lock:
+        rd = db._conn.execute("SELECT indoor_temp, outdoor_temp, boiler_on, people_home, kids_lights_on, hold FROM readings "
+                              "WHERE ts>=? AND ts<?", (s, e)).fetchall()
+        ev = db._conn.execute("SELECT ts, detail FROM events WHERE kind='presence' AND ts>=? AND ts<? ORDER BY ts", (s, e)).fetchall()
+        first = db._conn.execute("SELECT MIN(ts) FROM readings").fetchone()[0]
+        el = db._conn.execute("SELECT date(ts,'unixepoch','localtime') d, SUM(kwh) FROM energy WHERE fuel='electricity' AND kwh>0 "
+                              "GROUP BY d ORDER BY d DESC LIMIT 1").fetchone()
+        gs = db._conn.execute("SELECT SUM(kwh) FROM energy WHERE fuel='gas' AND date(ts,'unixepoch','localtime')=?",
+                              (el[0] if el else "",)).fetchone()
+    lines = []
+    if rd:
+        step = 5 / 60
+        boiler = sum(step for r in rd if r[2])
+        empty = sum(step for r in rd if r[2] and not r[3] and not r[4] and not r[5])
+        temps = [r[0] for r in rd if r[0] is not None]
+        outs = [r[1] for r in rd if r[1] is not None]
+        lines.append(f"Boiler {boiler:.1f}h" + (f" ({empty:.1f}h with nobody home)" if empty >= 0.25 else ""))
+        if temps:
+            lines.append(f"Inside {min(temps):.1f}–{max(temps):.1f}°" + (f", outside {min(outs):.0f}–{max(outs):.0f}°" if outs else ""))
+        empty_h = sum(step for r in rd if not r[3] and not r[4] and not r[5])
+        lines.append(f"Flat empty {empty_h:.1f}h")
+    moves = []
+    for ts, d in ev:
+        try:
+            j = json.loads(d)
+            moves.append(f"{j['person']} {'in' if j['home'] else 'out'} {datetime.fromtimestamp(ts):%H:%M}")
+        except Exception:
+            pass
+    if moves:
+        lines.append(", ".join(moves[:6]) + ("…" if len(moves) > 6 else ""))
+    if el:
+        lines.append(f"Meter ({el[0]}): {el[1]:.1f} kWh electricity" + (f", {gs[0]:.1f} kWh gas" if gs and gs[0] else ""))
+    if first:
+        days = (time.time() - first) / 86400
+        lines.append(f"Learning: day {days:.0f} of 14")
+    return f"Yesterday ({y:%a %d %b})", " · ".join(lines) or "No data recorded yesterday."

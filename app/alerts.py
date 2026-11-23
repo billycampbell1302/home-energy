@@ -110,7 +110,14 @@ def check(errors: dict):
                 notify.send("high_use", "Electricity use was high", f"{last:.1f} kWh on {last_day} – about {last / avg:.1f}× your usual {avg:.1f} kWh.")
         db.set_state(f"highuse_{d.date()}", True)
 
-    # 8. Weekly summary, Sunday 7pm
+    # 8. Daily report at 8am
+    if d.hour >= 8 and not db.get_state(f"daily_{d.date()}"):
+        from . import report
+        title, body = report.daily_text()
+        notify.send("daily", title, body)
+        db.set_state(f"daily_{d.date()}", True)
+
+    # 9. Weekly summary, Sunday 7pm
     if d.weekday() == 6 and d.hour == 19 and not db.get_state(f"weekly_{d.date()}"):
         with db._lock:
             e7 = db._conn.execute("SELECT SUM(kwh) FROM energy WHERE fuel='electricity' AND ts>=?", (now - 7 * 86400,)).fetchone()[0] or 0
