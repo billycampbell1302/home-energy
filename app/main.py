@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -441,6 +441,62 @@ def presence_hook(token: str, person: str, state: str):
         raise HTTPException(403, "Bad token")
     _set_presence(person, state)
     return {"ok": True}
+
+
+@app.get("/hook/router/script")
+def router_script(token: str):
+    """The router's cron job downloads and runs this every minute, so updates need no router changes."""
+    from . import router
+    if not hmac.compare_digest(token, webhook_token()):
+        raise HTTPException(403, "Bad token")
+    return PlainTextResponse(router.script(PUBLIC_URL, token))
+
+
+@app.post("/hook/router")
+async def router_hook(request: Request, token: str):
+    """The router reports Wi-Fi devices and their traffic every minute."""
+    from . import router
+    if not hmac.compare_digest(token, webhook_token()):
+        raise HTTPException(403, "Bad token")
+    try:
+        body = json.loads((await request.body()) or b"{}")
+    except ValueError:
+        raise HTTPException(400, "Bad JSON")
+    router.report(body.get("clients", []))
+    # Phones the router knows about decide that person's presence (the Wi-Fi shortcuts become a backup).
+    current = presence()
+    for person, home in router.people_home().items():
+        if home is not None and current.get(person, {}).get("home") != home:
+            _set_presence(person, "home" if home else "away")
+    return {"ok": True}
+
+
+@app.get("/api/router")
+def router_status():
+    from . import router
+    tok = webhook_token()
+    return {
+        "active": router.is_active(),
+        "last_report": db.get_state("router_last_report"),
+        "cron": f"* * * * * uclient-fetch -q -O- '{PUBLIC_URL}/hook/router/script?token={tok}' | sh",
+        "devices": router.device_list(),
+        "people": PEOPLE,
+        "streaming": router.streaming(),
+    }
+
+
+class RouterRole(BaseModel):
+    mac: str
+    role: str
+
+
+@app.post("/api/router/role")
+def router_role(r: RouterRole):
+    from . import router
+    if r.role not in ("", "streamer", "ignore") and not (r.role.startswith("person:") and r.role[7:] in PEOPLE):
+        raise HTTPException(400, "Unknown role")
+    router.set_role(r.mac, r.role)
+    return router_status()
 
 
 class PresenceSet(BaseModel):

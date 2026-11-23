@@ -37,7 +37,7 @@ function onTab(tab) {
   if (b.dataset.tab === 'history') { loadRoutine(); loadHistory(24); loadEvents(); }
   if (b.dataset.tab === 'energy') loadEnergy(30);
   if (tab === 'devices') loadAppliances(false);
-  if (b.dataset.tab === 'setup') { loadSetup(); loadVersion(); loadTariffForm(); }
+  if (b.dataset.tab === 'setup') { loadSetup(); loadVersion(); loadTariffForm(); loadRouter(); }
 }
 
 // ---------- home ----------
@@ -375,6 +375,23 @@ async function syncEnergy() {
   toast(r.error ? 'Bright: ' + r.error : 'Up to date');
   loadEnergy();
 }
+
+async function loadRouter() {
+  const r = await api('/api/router');
+  $('router-cron').textContent = r.cron;
+  $('router-status').innerHTML = r.active
+    ? `✅ Router reporting – last update ${ago(r.last_report)}.` + (r.streaming.length ? ` Streaming now: ${esc(r.streaming.join(', '))}.` : '')
+    : r.last_report ? `⚠️ No report from the router for ${ago(r.last_report).replace(' ago', '')} – check the scheduled task.` : 'Not set up yet.';
+  $('router-setup').style.display = r.active ? 'none' : 'block';
+  if (!r.devices.length) { $('router-devices').innerHTML = ''; return; }
+  const opts = [['', '—'], ...r.people.map((p) => ['person:' + p, p + "'s phone"]), ['streamer', 'Fire Stick / TV streamer'], ['ignore', 'Ignore']];
+  $('router-devices').innerHTML = `<p class="muted" style="margin-bottom:4px">Devices on your Wi-Fi – phones and Fire Sticks are recognised by name; fix any that are wrong:</p>` +
+    r.devices.slice(0, 40).map((d) => `<div class="device row" style="gap:8px">
+      <div style="min-width:0"><b>${esc(d.name || 'Unnamed device')}</b><div class="muted" style="font-size:12px">${esc(d.mac)} · ${d.seen_ago < 120 ? 'online' : 'seen ' + ago(Date.now() / 1000 - d.seen_ago)}${d.kbps > 50 ? ' · ' + d.kbps + ' kbit/s' : ''}</div></div>
+      <select onchange="setRouterRole('${d.mac}', this.value)" style="font:inherit;background:#11141a;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px">
+        ${opts.map(([v, l]) => `<option value="${v}" ${d.role === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`).join('');
+}
+async function setRouterRole(mac, role) { await api('/api/router/role', {mac, role}); toast('Saved'); }
 
 async function stStart() {
   $('st-msg').textContent = '';

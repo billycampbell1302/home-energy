@@ -260,6 +260,18 @@
     </div>
 
     <div class="card">
+      <h2>7 · Router (Wi-Fi presence &amp; Fire Sticks)</h2>
+      <p class="muted" id="router-status"></p>
+      <div id="router-setup">
+        <p class="muted">One-off: on the iPad, open your router's admin page (usually <b>192.168.1.1</b>), log in, then go to
+          <b>System → Scheduled Tasks</b>, paste this line on a new line, and tap <b>Save</b>. Then <b>System → Startup</b>, find <b>cron</b> and tap <b>Restart</b>.</p>
+        <div class="url" id="router-cron"></div>
+        <button class="small" onclick="navigator.clipboard.writeText($('router-cron').textContent).then(()=>toast('Copied'))">Copy</button>
+      </div>
+      <div id="router-devices" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
       <h2>App updates</h2>
       <p class="muted" id="version">Version …</p>
       <button class="primary" id="update-btn" onclick="checkUpdates()">Check for updates now</button>

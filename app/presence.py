@@ -51,6 +51,10 @@ def lights_signal(devices: list, presence: dict) -> dict:
     hour = datetime.now().hour
     night = hour >= NIGHT_START or hour < NIGHT_END
     red = [d for d in on if d.get("red") and d["kind"] == "light"] if night else []
+    from . import router
+    streams = router.streaming()
+    if streams:
+        return {"someone_in": True, "why": f"{streams[0]} is streaming", "ignored": []}
     if used:
         return {"someone_in": True, "why": f"{used[0]['name']} was used since you left", "ignored": []}
     if red:
