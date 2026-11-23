@@ -56,6 +56,10 @@ def poll_once():
     if hive.is_configured():
         try:
             s = hive.refresh()
+            try:
+                hive.track_changes()
+            except Exception as e:
+                log.warning("Hive change tracking: %s", e)
             row.update(indoor_temp=s.get("indoor_temp"), target_temp=s.get("target_temp"),
                        heating_mode=s.get("mode"), boiler_on=int(bool(s.get("boiler_on"))),
                        hot_water_on=int(bool(s.get("hot_water_on"))))
@@ -121,6 +125,25 @@ def backfill_step():
         backfill.run(hive)
 
 
+def daily_backup():
+    """Keeps 7 daily copies of the database on the server, so a corrupted file never loses the learning data."""
+    import sqlite3
+    from .config import DATA_DIR, DB_PATH
+    day = time.strftime("%Y-%m-%d")
+    bdir = DATA_DIR / "backups"
+    bdir.mkdir(exist_ok=True)
+    target = bdir / f"home-{day}.db"
+    if target.exists():
+        return
+    src = sqlite3.connect(DB_PATH)
+    dst = sqlite3.connect(target)
+    src.backup(dst)
+    dst.close()
+    src.close()
+    for old in sorted(bdir.glob("home-*.db"))[:-7]:
+        old.unlink()
+
+
 async def poll_loop():
     while True:
         try:
@@ -131,6 +154,10 @@ async def poll_loop():
             await asyncio.to_thread(backfill_step)   # imports Hive's past history a few months at a time
         except Exception as e:
             log.warning("history import: %s", e)
+        try:
+            await asyncio.to_thread(daily_backup)
+        except Exception as e:
+            log.warning("backup: %s", e)
         try:
             from . import alerts
             await asyncio.to_thread(alerts.check, dict(_errors))
@@ -266,6 +293,39 @@ def status():
 def insights():
     from . import insights as ins
     return ins.build(hive.is_configured(), tuya.is_configured(), dict(_errors))
+
+
+@app.get("/api/learning")
+def learning_health():
+    """Is the learning getting good data? Each check is worked out automatically."""
+    from . import router
+    now = int(time.time())
+    with db._lock:
+        n24 = db._conn.execute("SELECT COUNT(*) FROM readings WHERE ts>=?", (now - 86400,)).fetchone()[0]
+        first = db._conn.execute("SELECT MIN(ts) FROM readings").fetchone()[0]
+        temps24 = db._conn.execute("SELECT COUNT(*) FROM readings WHERE ts>=? AND indoor_temp IS NOT NULL", (now - 86400,)).fetchone()[0]
+        wind24 = db._conn.execute("SELECT COUNT(*) FROM readings WHERE ts>=? AND extra LIKE '%wind%'", (now - 86400,)).fetchone()[0]
+        manual = db._conn.execute("SELECT COUNT(*) FROM events WHERE kind='manual'").fetchone()[0]
+        devev = db._conn.execute("SELECT COUNT(*) FROM events WHERE kind='device'").fetchone()[0]
+        gas_last = db._conn.execute("SELECT MAX(ts) FROM energy WHERE fuel='gas' AND kwh>0").fetchone()[0]
+    expected = min(288, max(1, (now - (first or now)) // 300))
+    roles = db.get_state("router_roles", {})
+    linked = {r.split(":", 1)[1] for r in roles.values() if r.startswith("person:")}
+    bf = db.get_state("backfill", {})
+    checks = [
+        ("Recording every 5 minutes", n24 >= expected * 0.9, f"{n24} of ~{expected} readings in the last 24h"),
+        ("Hive temperatures", temps24 >= expected * 0.9, f"{temps24} readings with a temperature"),
+        ("Weather incl. wind & sun", wind24 >= expected * 0.8, "Met Office data with each reading"),
+        ("Router reporting", router.is_active(), "phones and Fire Sticks"),
+        *[(f"{p}'s phone linked", p in linked, "in ⚙️ → Router" if p not in linked else "tracked by the router") for p in PEOPLE],
+        ("Smart meter gas data up to date", bool(gas_last) and now - gas_last < 4 * 86400,
+         "needed to measure savings – Bright is behind" if not gas_last or now - gas_last >= 4 * 86400 else "fine"),
+        ("Past Hive history imported", bool(bf.get("count")), f"{bf.get('count', 0):,} readings" if bf.get("count") else "in progress / not available"),
+        ("Light & TV activity", devev > 0, f"{devev} on/off changes logged" if devev else "none logged yet"),
+        ("Your manual heating changes", True, f"{manual} logged – each one teaches it what temperature you wanted"),
+    ]
+    days = round((now - first) / 86400, 1) if first else 0
+    return {"days": days, "target_days": 14, "checks": [{"name": a, "ok": b, "detail": c} for a, b, c in checks]}
 
 
 @app.get("/api/routine")

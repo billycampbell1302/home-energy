@@ -154,6 +154,30 @@ class HiveClient:
             return r.json() if r.text else {}
 
     # ---------- reading ----------
+    def track_changes(self):
+        """Logs changes made outside this app (on the thermostat or in the Hive app) - each one tells the learning
+        what temperature you actually wanted at that time. Also snapshots the Hive schedule once a day."""
+        s = self.summary()
+        if not s.get("connected"):
+            return
+        prev = db.get_state("hive_prev", {})
+        cur = {"target": s.get("target_temp"), "mode": s.get("mode")}
+        own_recent = time.time() - db.get_state("hive_last_own_change", 0) < 15 * 60
+        if prev and cur != prev and not own_recent:
+            # A target change while on schedule is just the schedule moving on - only log real overrides.
+            if cur["mode"] != prev.get("mode") or cur["mode"] in ("MANUAL", "BOOST"):
+                db.add_event("manual", {"from": prev, "to": cur, "indoor": s.get("indoor_temp")})
+            elif cur["target"] != prev.get("target"):
+                db.add_event("schedule", {"target": cur["target"]})
+        db.set_state("hive_prev", cur)
+        today = time.strftime("%Y-%m-%d")
+        if db.get_state("hive_schedule_day") != today:
+            heat = self._product("heating") or {}
+            sched = heat.get("state", {}).get("schedule")
+            if sched:
+                db.add_event("hive_schedule", sched)
+            db.set_state("hive_schedule_day", today)
+
     def refresh(self) -> dict:
         """Reads every Hive home on the account (e.g. yours and a parent's) and tags each product with its home."""
         base = "/nodes/all?products=true&devices=true&actions=true"
@@ -250,6 +274,7 @@ class HiveClient:
         q = f"?homeId={prod['_home_id']}" if prod.get("_home_id") and len(getattr(self, "homes", [])) > 1 else ""
         self._request("POST", f"/nodes/{ptype}/{pid}{q}", body)
         db.add_event("command", {"device": ptype, **body})
+        db.set_state("hive_last_own_change", time.time())
 
     def set_target(self, temp: float):
         s = self.summary()

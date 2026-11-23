@@ -46,7 +46,11 @@ def report(clients: list) -> dict:
             d["bps"] = round((total - d["bytes"]) / dt)
         else:
             d["bps"] = 0      # first sight or counters reset (device reconnected)
+        was_streaming = d.get("streaming_until", 0) > now
+        role = roles.get(mac, "")
         if d["bps"] >= STREAM_BPS:
+            if not was_streaming and role == "streamer":
+                db.add_event("device", {"name": c.get("name") or d.get("name") or mac, "kind": "streamer", "state": "streaming"})
             d["streaming_until"] = now + STREAM_HOLD
         if d["bps"] >= KIDS_BPS:
             d["active_until"] = now + KIDS_HOLD

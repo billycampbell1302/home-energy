@@ -33,7 +33,7 @@ function showTab(tab) {
 document.querySelectorAll('nav button').forEach((b) => b.onclick = () => showTab(b.dataset.tab));
 function onTab(tab) {
   const b = {dataset: {tab}};
-  if (tab === 'summary') { loadSummary(); loadReport(); }
+  if (tab === 'summary') { loadLearning(); loadSummary(); loadReport(); }
   if (b.dataset.tab === 'history') { loadRoutine(); loadHistory(24); loadEvents(); }
   if (b.dataset.tab === 'energy') loadEnergy(30);
   if (tab === 'devices') { loadAppliances(false); loadOverview(); }
@@ -479,6 +479,15 @@ async function enablePush() {
     await api('/api/push/subscribe', sub.toJSON());
     toast('Notifications on'); loadPush();
   } catch (e) { toast('Could not turn on notifications: ' + e.message); }
+}
+
+// ---------- learning health ----------
+async function loadLearning() {
+  const l = await api('/api/learning');
+  const pct = Math.min(100, Math.round(l.days / l.target_days * 100));
+  $('learning').innerHTML = `<div class="row"><b>Day ${Math.floor(l.days)} of ${l.target_days}</b><span class="muted">${pct}%</span></div>
+    <div style="height:8px;background:var(--line);border-radius:4px;margin:6px 0 10px"><div style="height:8px;width:${pct}%;background:var(--warm);border-radius:4px"></div></div>` +
+    l.checks.map((c) => `<div style="padding:3px 0">${c.ok ? '✅' : '⚠️'} ${esc(c.name)} <span class="muted" style="font-size:13px">– ${esc(c.detail)}</span></div>`).join('');
 }
 
 // ---------- monthly report ----------

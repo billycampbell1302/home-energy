@@ -34,6 +34,8 @@ def update_light_activity(devices: list) -> None:
             continue
         if d["id"] in sigs and sigs[d["id"]] != d["sig"]:
             activity[d["id"]] = now
+            db.add_event("device", {"name": d["name"], "kind": d["kind"],
+                                    "state": "night red" if d.get("red") and d["on"] else ("on" if d["on"] else "off")})
         sigs[d["id"]] = d["sig"]
     db.set_state("light_sigs", sigs)
     db.set_state("light_activity", activity)
