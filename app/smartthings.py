@@ -55,11 +55,11 @@ def register_app(pat: str) -> str:
         "oauth": {"clientName": "Home Energy", "scope": SCOPES, "redirectUris": [REDIRECT]},
     }
     r = requests.post(f"{API}/apps", json=body, timeout=TIMEOUT,
-                      headers={"Authorization": f"Bearer {pat}", "Content-Type": "application/json"})
+                      headers={"Authorization": f"Bearer {pat}", "Content-Type": "application/json",
+                               "Accept": "application/json"})
     if r.status_code >= 300:
-        if r.status_code in (401, 403):
-            raise STError("SmartThings didn't accept that token - make sure you ticked all the permission boxes when creating it.")
-        raise STError(f"SmartThings said {r.status_code}: {r.text[:200]}")
+        hint = " Make sure you ticked all the permission boxes when creating the token." if r.status_code in (401, 403) else ""
+        raise STError(f"SmartThings said {r.status_code}: {r.text[:300] or r.reason}.{hint}")
     j = r.json()
     client_id, client_secret = j.get("oauthClientId"), j.get("oauthClientSecret")
     if not client_id:
