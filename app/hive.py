@@ -57,6 +57,7 @@ class HiveClient:
         self._token_time = 0.0
         self._auth = None
         self.last_nodes = []
+        self.homes = []
         self.last_ok = 0.0
 
     # ---------- setup (called from the Setup page) ----------
@@ -154,8 +155,27 @@ class HiveClient:
 
     # ---------- reading ----------
     def refresh(self) -> dict:
-        data = self._request("GET", "/nodes/all?products=true&devices=true&actions=true")
-        self.last_nodes = data.get("products", [])
+        """Reads every Hive home on the account (e.g. yours and a parent's) and tags each product with its home."""
+        base = "/nodes/all?products=true&devices=true&actions=true"
+        data = self._request("GET", base)
+        homes = (data.get("homes") or {}).get("homes") or []
+        products, seen = [], set()
+        sources = [(data, None)] if len(homes) <= 1 else []
+        for h in homes if len(homes) > 1 else []:
+            try:
+                sources.append((self._request("GET", f"{base}&homeId={h['id']}"), h))
+            except HiveError:
+                continue
+        for d, h in sources:
+            for p in d.get("products", []):
+                if p["id"] in seen:
+                    continue
+                seen.add(p["id"])
+                home = h or (homes[0] if homes else {})
+                p["_home_id"], p["_home_name"] = home.get("id"), home.get("name", "")
+                products.append(p)
+        self.homes = homes
+        self.last_nodes = products
         self.last_ok = time.time()
         return self.summary()
 
@@ -166,6 +186,11 @@ class HiveClient:
             for p in matches:
                 if p.get("id") == chosen:
                     return p
+        else:
+            # Hot water etc: use the one in the same Hive home as the chosen heating.
+            heat = self._product("heating")
+            same = [p for p in matches if heat and p.get("_home_id") == heat.get("_home_id")]
+            matches = same or matches
         # Prefer a single (not grouped) product that's online - old/removed thermostats can linger offline.
         ranked = sorted(matches, key=lambda p: (p.get("isGroup", False), not p.get("props", {}).get("online", True)))
         return ranked[0] if ranked else None
@@ -181,6 +206,7 @@ class HiveClient:
             out.append({
                 "id": p["id"], "type": p.get("type"),
                 "name": st.get("name") or pr.get("zoneName") or p["id"][:8],
+                "home": p.get("_home_name", ""),
                 "indoor_temp": _num(pr.get("temperature")), "target_temp": _num(st.get("target")),
                 "mode": st.get("mode"), "online": pr.get("online", True),
                 "group": p.get("isGroup", False), "chosen": p["id"] == chosen,
@@ -199,6 +225,7 @@ class HiveClient:
             out.update({
                 "heating_id": heat["id"],
                 "zone_name": st.get("name") or "",
+                "home_name": heat.get("_home_name", ""),
                 "indoor_temp": _num(pr.get("temperature")),
                 "target_temp": _num(st.get("target")),
                 "mode": mode,
@@ -219,7 +246,9 @@ class HiveClient:
     def _set(self, ptype: str, pid: str, **values):
         # Hive's API expects the values as strings, matching the official app.
         body = {k: str(v) for k, v in values.items()}
-        self._request("POST", f"/nodes/{ptype}/{pid}", body)
+        prod = next((p for p in self.last_nodes if p.get("id") == pid), {})
+        q = f"?homeId={prod['_home_id']}" if prod.get("_home_id") and len(getattr(self, "homes", [])) > 1 else ""
+        self._request("POST", f"/nodes/{ptype}/{pid}{q}", body)
         db.add_event("command", {"device": ptype, **body})
 
     def set_target(self, temp: float):
