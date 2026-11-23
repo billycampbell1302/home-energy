@@ -9,9 +9,12 @@ APP=/opt/home-energy
 DATA=/var/lib/home-energy
 ENVF=/etc/home-energy.env
 
+# Wait until the server can reach the internet (Oracle networks can take a few minutes to be ready).
+until curl -fsS --max-time 10 https://github.com >/dev/null; do echo "waiting for internet..."; sleep 30; done
+
 timedatectl set-timezone Europe/London || true
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
+for i in 1 2 3 4 5; do apt-get update && break; sleep 20; done
 apt-get install -y python3-venv python3-pip git curl caddy iptables-persistent
 
 # Small servers (1 GB RAM) - add swap so installs don't run out of memory.
