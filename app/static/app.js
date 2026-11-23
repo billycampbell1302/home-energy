@@ -36,7 +36,7 @@ function onTab(tab) {
   if (tab === 'summary') { loadSummary(); loadReport(); }
   if (b.dataset.tab === 'history') { loadRoutine(); loadHistory(24); loadEvents(); }
   if (b.dataset.tab === 'energy') loadEnergy(30);
-  if (tab === 'devices') loadAppliances(false);
+  if (tab === 'devices') { loadAppliances(false); loadOverview(); }
   if (b.dataset.tab === 'setup') { loadSetup(); loadVersion(); loadTariffForm(); loadRouter(); loadPush(); }
 }
 
@@ -509,6 +509,41 @@ async function clLogin() {
   } catch (e) { $('cl-msg').textContent = e.message; }
 }
 
+async function loadOverview() {
+  const o = await api('/api/devices/overview');
+  const pill = (txt, cls) => `<span class="pill ${cls || ''}">${txt}</span>`;
+  const seen = (d) => d.online ? 'connected now' : 'last seen ' + ago(Date.now() / 1000 - d.seen_ago);
+  const row = (name, sub, right) => `<div class="device row"><div style="min-width:0"><b>${esc(name)}</b><div class="muted" style="font-size:13px">${sub}</div></div>${right}</div>`;
+
+  // Phones (presence)
+  $('phones-card').style.display = o.phones.length || o.people_without_phone.length ? 'block' : 'none';
+  $('phones').innerHTML = o.phones.map((p) => row(`${p.person}'s phone`, `${esc(p.name || p.mac)} · ${seen(p)}`,
+      p.home ? pill('home', 'home') : pill('out', 'away'))).join('') +
+    o.people_without_phone.map((p) => row(`${p}'s phone`, 'Not linked yet – set it in ⚙️ → Router when they\'re home', pill('—'))).join('');
+
+  // Heating
+  const h = o.heating;
+  $('heat-dev-card').style.display = h && h.connected ? 'block' : 'none';
+  if (h && h.connected) $('heat-dev').innerHTML = row(`Hive thermostat${h.zone_name ? ' · ' + esc(h.zone_name) : ''}`,
+    `${h.indoor_temp ?? '–'}° now · target ${h.target_temp ?? '–'}° · ${esc(h.mode || '')}${h.online === false ? ' · OFFLINE' : ''}`,
+    h.boiler_on ? pill('🔥 heating', 'on') : pill('idle'));
+
+  // Fire Sticks
+  $('tv-card').style.display = o.streamers.length ? 'block' : 'none';
+  $('tv-devs').innerHTML = o.streamers.map((d) => row(d.name || 'Fire Stick', `${seen(d)}${d.kbps > 50 ? ' · ' + (d.kbps / 1000).toFixed(1) + ' Mbit/s' : ''}`,
+    d.streaming ? pill('▶ streaming', 'on') : d.online ? pill('idle') : pill('off', 'away'))).join('');
+
+  // Kids' devices
+  $('kids-dev-card').style.display = o.kids.length ? 'block' : 'none';
+  $('kids-devs').innerHTML = o.kids.map((d) => row(d.name || "Kids' device", seen(d),
+    d.in_use ? pill('in use', 'on') : d.online ? pill('idle') : pill('off', 'away'))).join('');
+
+  // Everything else on the Wi-Fi
+  $('other-card').style.display = o.other_wifi.length ? 'block' : 'none';
+  $('other-devs').innerHTML = `<details><summary class="muted">${o.other_wifi.length} device${o.other_wifi.length === 1 ? '' : 's'}</summary>` +
+    o.other_wifi.map((d) => row(d.name || 'Unnamed device', `${esc(d.mac)} · ${seen(d)}`, d.role === 'ignore' ? pill('ignored') : pill(d.online ? 'online' : 'offline'))).join('') + '</details>';
+}
+
 async function loadAppliances(refresh) {
   const r = await api('/api/appliances' + (refresh ? '?refresh=true' : ''));
   $('appl-card').style.display = r.configured ? 'block' : 'none';
@@ -517,7 +552,7 @@ async function loadAppliances(refresh) {
     (r.appliances.length ? r.appliances.map((a) => {
       const fields = Object.entries(a.status || {});
       const changing = (a.changing || []).map((k) => `${esc(k)} = ${esc(a.status[k])}`).join('<br>');
-      return `<div class="device"><div class="row"><b>${esc(a.name)}</b><span class="pill">${a.offline ? 'offline' : 'online'}</span></div>
+      return `<div class="device"><div class="row"><b>${esc(a.name)}</b><span class="pill ${a.offline ? 'away' : ''}">${a.offline ? 'offline' : 'online'}</span></div>
         <div class="muted">${esc(a.type || '')} · ${fields.length} readings · updated ${ago(a.updated)}</div>
         ${changing ? `<div class="muted" style="margin-top:6px"><b>Changed recently:</b><br>${changing}</div>` : '<div class="muted" style="margin-top:6px">Run a wash and the fields that change will show here.</div>'}
         <details style="margin-top:6px"><summary class="muted">Everything it reports</summary><div class="url">${fields.map(([k, v]) => `${esc(k)}: ${esc(v)}`).join('<br>')}</div></details></div>`;

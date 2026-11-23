@@ -481,6 +481,30 @@ async def router_hook(request: Request, token: str):
     return {"ok": True}
 
 
+@app.get("/api/devices/overview")
+def devices_overview():
+    """Everything the app knows about, grouped for the Devices tab."""
+    from . import connectlife, router
+    rdev = router.device_list() if db.get_state("router_last_report") else []
+    pres = presence()
+    phones = []
+    for d in rdev:
+        if d["role"].startswith("person:"):
+            person = d["role"].split(":", 1)[1]
+            phones.append({**d, "person": person, "home": pres.get(person, {}).get("home"),
+                           "since": pres.get(person, {}).get("since")})
+    return {
+        "router_active": router.is_active(),
+        "phones": phones,
+        "people_without_phone": [p for p in PEOPLE if not any(ph["person"] == p for ph in phones)],
+        "streamers": [d for d in rdev if d["role"] == "streamer"],
+        "kids": [d for d in rdev if d["role"] == "kids"],
+        "other_wifi": [d for d in rdev if d["role"] in ("", "ignore")],
+        "heating": hive.summary() if hive.last_nodes else None,
+        "appliances": connectlife.appliances() if connectlife.is_configured() else [],
+    }
+
+
 @app.get("/api/router")
 def router_status():
     from . import router

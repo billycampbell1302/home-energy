@@ -105,7 +105,9 @@ def device_list() -> list:
     devs, roles = db.get_state("router_devices", {}), db.get_state("router_roles", {})
     now = time.time()
     rows = [{"mac": m, "name": d.get("name") or "", "ip": d.get("ip"), "seen_ago": int(now - d.get("last_seen", 0)),
-             "kbps": round(d.get("bps", 0) * 8 / 1000), "role": roles.get(m, "")}
+             "kbps": round(d.get("bps", 0) * 8 / 1000), "role": roles.get(m, ""),
+             "online": now - d.get("last_seen", 0) < 3 * 60,
+             "streaming": d.get("streaming_until", 0) > now, "in_use": d.get("active_until", 0) > now}
             for m, d in devs.items()]
     return sorted(rows, key=lambda r: (r["role"] == "", r["seen_ago"]))
 
