@@ -2,6 +2,7 @@
 # Installs Home Energy on a fresh Ubuntu 22.04/24.04 server (Oracle Cloud Always Free).
 # Run as root. Expects ADMIN_PASSWORD (and optionally PEOPLE) in the environment - see deploy/cloud-init.sh.
 set -euxo pipefail
+export HOME=/root   # cloud-init runs scripts without HOME set
 exec > >(tee -a /var/log/home-energy-install.log) 2>&1
 
 REPO="${REPO:-https://github.com/billycampbell1302/home-energy.git}"
@@ -31,7 +32,6 @@ id homeenergy &>/dev/null || useradd --system --home "$DATA" --shell /usr/sbin/n
 mkdir -p "$DATA" && chown homeenergy:homeenergy "$DATA" && chmod 700 "$DATA"
 
 if [ ! -d "$APP/.git" ]; then git clone "$REPO" "$APP"; fi
-git config --global --add safe.directory "$APP"
 python3 -m venv "$APP/.venv"
 "$APP/.venv/bin/pip" install --upgrade pip
 "$APP/.venv/bin/pip" install -r "$APP/requirements.txt"
