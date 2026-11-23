@@ -60,7 +60,70 @@ def check(errors: dict):
                 prev[a["puid"]] = rem
         db.set_state("appliance_remaining", prev)
 
-    # 4. Monthly report on the 1st, after 9am
+    # 4. Flat getting cold while someone's in (below 16° for 30 minutes)
+    with db._lock:
+        temps = db._conn.execute(
+            "SELECT indoor_temp, people_home, kids_lights_on, hold FROM readings WHERE ts>=? ORDER BY ts", (now - 30 * 60,)).fetchall()
+    cold = len(temps) >= 5 and all(t is not None and t < 16 and (p or k or h) for t, p, k, h in temps)
+    notify.once("cold_home", cold, "cold_home", "The flat's getting cold",
+                f"It's {temps[-1][0] if temps else '?'}° inside and someone's home. Tap to boost the heating.")
+
+    # 5. Lights left on with everyone out for 30 minutes
+    from .presence import lights_signal
+    try:
+        from .main import all_devices, presence as _presence
+        pres = _presence()
+        if not any(v["home"] for v in pres.values()) and pres and now - max(v["since"] for v in pres.values()) > 30 * 60:
+            left = lights_signal(all_devices(), pres).get("ignored", [])
+        else:
+            left = []
+    except Exception:
+        left = []
+    notify.once("lights_left", bool(left), "lights_left", "Lights left on",
+                f"{', '.join(left)} {'is' if len(left) == 1 else 'are'} on and nobody's home. Tap to switch off.")
+
+    d = datetime.now()
+
+    # 6. Frost tonight - one heads-up at 6pm
+    if d.hour == 18 and not db.get_state(f"frost_{d.date()}"):
+        try:
+            from . import weather
+            low = weather.current().get("overnight_low")
+            if low is not None and low <= 1:
+                notify.send("frost", "Frost tonight", f"Down to {low:.0f}° overnight. The heating may need to start earlier in the morning.")
+            db.set_state(f"frost_{d.date()}", True)
+        except Exception:
+            pass
+
+    # 7. Unusually high electricity day (checked once a day, after the smart meter data arrives)
+    from .bright import bright
+    if bright.is_configured() and d.hour >= 10 and not db.get_state(f"highuse_{d.date()}"):
+        with db._lock:
+            rows = db._conn.execute(
+                "SELECT date(ts,'unixepoch','localtime') d, SUM(kwh) FROM energy WHERE fuel='electricity' AND kwh>0 "
+                "AND ts>=? GROUP BY d ORDER BY d", (now - 16 * 86400,)).fetchall()
+        full = [(day, v) for day, v in rows if v > 0.5]
+        if len(full) >= 8:
+            last_day, last = full[-1]
+            avg = sum(v for _, v in full[:-1]) / len(full[:-1])
+            if last > avg * 1.5 and last - avg > 2:
+                notify.send("high_use", "Electricity use was high", f"{last:.1f} kWh on {last_day} – about {last / avg:.1f}× your usual {avg:.1f} kWh.")
+        db.set_state(f"highuse_{d.date()}", True)
+
+    # 8. Weekly summary, Sunday 7pm
+    if d.weekday() == 6 and d.hour == 19 and not db.get_state(f"weekly_{d.date()}"):
+        with db._lock:
+            e7 = db._conn.execute("SELECT SUM(kwh) FROM energy WHERE fuel='electricity' AND ts>=?", (now - 7 * 86400,)).fetchone()[0] or 0
+            g7 = db._conn.execute("SELECT SUM(kwh) FROM energy WHERE fuel='gas' AND ts>=?", (now - 7 * 86400,)).fetchone()[0] or 0
+            rd = db._conn.execute("SELECT boiler_on, people_home, kids_lights_on, hold FROM readings WHERE ts>=?", (now - 7 * 86400,)).fetchall()
+        boiler = sum(5 for b, *_ in rd if b) / 60
+        empty = sum(5 for b, p, k, h in rd if b and not p and not k and not h) / 60
+        body = f"Boiler ran {boiler:.0f}h" + (f" ({empty:.0f}h with nobody home)" if empty >= 1 else "") + \
+               (f" · electricity {e7:.0f} kWh · gas {g7:.0f} kWh" if e7 else "")
+        notify.send("weekly", "Your week at home", body)
+        db.set_state(f"weekly_{d.date()}", True)
+
+    # 9. Monthly report on the 1st, after 9am
     d = datetime.now()
     if d.day == 1 and d.hour >= 9:
         from . import report

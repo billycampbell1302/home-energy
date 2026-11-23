@@ -434,6 +434,11 @@ def _set_presence(person: str, state: str):
         p[match] = {"home": home, "since": int(time.time())}
         db.set_state("presence", p)
         db.add_event("presence", {"person": match, "home": home})
+        try:
+            from . import notify
+            notify.send("arrivals", f"{match} {'arrived home' if home else 'left'}", time.strftime("%H:%M"))
+        except Exception:
+            pass
         if home and db.get_state("hold", False):
             db.set_state("hold", False)   # guests switch is only for when nobody's phone is home
     return p
@@ -646,7 +651,7 @@ def smartthings_callback(code: str = "", state: str = "", error: str = ""):
 def push_info():
     from . import notify
     return {"public_key": notify.public_key(), "settings": notify.settings(), "types": notify.TYPES,
-            "devices": len(db.get_state("push_subs", []))}
+            "devices": len(db.get_state("push_subs", [])), "last": db.get_state("push_last")}
 
 
 @app.post("/api/push/subscribe")
@@ -674,7 +679,14 @@ def push_settings(n: NotifySetting):
 @app.post("/api/push/test")
 def push_test():
     from . import notify
-    notify.send("service_down", "Home Energy", "Notifications are working 👍")
+    results = notify.send("test", "Home Energy", "Notifications are working 👍", force=True)
+    return {"phones": len(results), "results": results}
+
+
+@app.post("/api/push/reset")
+def push_reset():
+    """Forget all phone subscriptions (then turn notifications on again on each phone)."""
+    db.set_state("push_subs", [])
     return {"ok": True}
 
 

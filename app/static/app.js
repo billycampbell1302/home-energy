@@ -414,7 +414,27 @@ async function loadPush() {
   $('push-btn').style.display = supported && standalone && !subscribed ? 'inline-block' : 'none';
   $('push-settings').innerHTML = Object.entries(info.types).map(([k, label]) =>
     `<label class="row" style="padding:6px 0"><span>${esc(label)}</span><input type="checkbox" style="width:auto" ${info.settings[k] ? 'checked' : ''} onchange="api('/api/push/settings',{kind:'${k}',on:this.checked})"></label>`).join('') +
-    (subscribed ? `<button class="small" onclick="api('/api/push/test',{}).then(()=>toast('Test sent'))">Send a test</button>` : '');
+    (subscribed ? `<div class="wrap" style="margin-top:8px"><button class="small" onclick="testPush()">Send a test</button>
+      <button class="small" onclick="resetPush()">Reset notifications</button></div><p class="muted" id="push-result" style="font-size:13px"></p>` : '');
+  if (info.last && $('push-result')) showPushResult(info.last.results, info.last.ts);
+}
+function showPushResult(results, ts) {
+  const el = $('push-result'); if (!el) return;
+  if (!results.length) { el.textContent = 'No phones subscribed – tap Reset, then turn notifications on again.'; return; }
+  el.innerHTML = results.map((r, i) => r.ok ? `Phone ${i + 1}: sent ✅ (Apple accepted it)` : `Phone ${i + 1}: failed ❌ ${r.status || ''} ${esc(r.error)}`).join('<br>') +
+    (ts ? `<br><span style="font-size:11px">${ago(ts)}</span>` : '');
+}
+async function testPush() {
+  const r = await api('/api/push/test', {});
+  showPushResult(r.results);
+  toast(r.results.some((x) => x.ok) ? 'Sent – it should arrive in a few seconds' : 'Not delivered – see the message below');
+}
+async function resetPush() {
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription();
+  if (sub) await sub.unsubscribe();
+  await api('/api/push/reset', {});
+  toast('Reset – now tap Turn on notifications'); loadPush();
 }
 async function enablePush() {
   try {
