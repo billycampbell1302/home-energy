@@ -37,6 +37,7 @@ class TuyaClient:
         self._login = LoginControl()
         self._pending = None   # (qr_token, user_code)
         self._manager = None
+        self.home_of: dict[str, str] = {}
         self.last_ok = 0.0
 
     # ---------- setup ----------
@@ -92,7 +93,14 @@ class TuyaClient:
     def refresh(self) -> list:
         with self._lock:
             m = self._mgr()
-            m.update_device_cache()
+            # Same as Manager.update_device_cache, but also remembers each device's Smart Life home.
+            homes = m.home_repository.query_homes()
+            m.user_homes = homes
+            m.device_map.clear()
+            for home in homes:
+                for device in m.device_repository.query_devices_by_home(home.id):
+                    m.device_map[device.id] = device
+                    self.home_of[device.id] = home.name
             self.last_ok = time.time()
             return self.devices()
 
@@ -101,6 +109,7 @@ class TuyaClient:
             return []
         out = []
         kids_ids = set(db.get_state("kids_lights", []))
+        hidden_ids = set(db.get_state("hidden_devices", []))
         for d in self._manager.device_map.values():
             if d.category in LIGHT_CATEGORIES:
                 kind = "light"
@@ -118,6 +127,8 @@ class TuyaClient:
                 "on": bool(st.get(on_key)) if on_key else None,
                 "mode": st.get("work_mode"),
                 "kids": d.id in kids_ids,
+                "hidden": d.id in hidden_ids,
+                "home": self.home_of.get(d.id, ""),
                 "power_w": _power(st),
             })
         return sorted(out, key=lambda x: (x["kind"], x["name"]))

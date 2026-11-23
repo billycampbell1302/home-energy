@@ -61,13 +61,35 @@ function render() {
   $('hold').textContent = S.hold ? 'On' : 'Off';
   $('hold').className = S.hold ? 'primary' : '';
 
-  const kids = S.devices.filter((d) => d.kids);
+  const kids = S.devices.filter((d) => d.kids && !d.hidden);
   $('kids-card').style.display = kids.length ? 'block' : 'none';
   $('kids-lights').innerHTML = kids.map(deviceRow).join('');
-  $('devices').innerHTML = S.tuya_configured
-    ? (S.devices.length ? S.devices.map((d) => deviceRow(d, true)).join('') : 'No devices found in your Smart Life account.')
-    : "Smart Life isn't connected yet – go to Setup.";
+  $('devices').innerHTML = S.tuya_configured ? devicesHtml() : "Smart Life isn't connected yet – go to Setup.";
 }
+
+let showHidden = false;
+function devicesHtml() {
+  if (!S.devices.length) return 'No devices found in your Smart Life account.';
+  const visible = S.devices.filter((d) => !d.hidden), hidden = S.devices.filter((d) => d.hidden);
+  const homes = [...new Set(S.devices.map((d) => d.home))];
+  let html = '';
+  for (const home of homes) {
+    const ds = visible.filter((d) => d.home === home);
+    if (!ds.length) continue;
+    html += `<div class="row" style="margin-top:6px"><b>${esc(home || 'Devices')}</b>` +
+      (homes.length > 1 ? `<button class="small" onclick="hideHome('${esc(home)}', true)">Hide this home</button>` : '') + `</div>`;
+    html += ds.map((d) => deviceRow(d, true)).join('');
+  }
+  if (!visible.length) html += '<p class="muted">All devices are hidden.</p>';
+  if (hidden.length) {
+    html += `<div style="margin-top:14px"><button class="small" onclick="showHidden=!showHidden;render()">${showHidden ? 'Hide' : 'Show'} hidden devices (${hidden.length})</button></div>`;
+    if (showHidden) html += hidden.map((d) => `<div class="device row"><span class="muted">${esc(d.name)}${d.home ? ' · ' + esc(d.home) : ''}</span>
+      <button class="small" onclick="hideDev('${d.id}', false)">Unhide</button></div>`).join('');
+  }
+  return html;
+}
+async function hideDev(id, hidden) { S.devices = await api(`/api/devices/${id}/hidden`, {hidden}); render(); }
+async function hideHome(home, hidden) { S.devices = await api('/api/homes/hidden', {home, hidden}); render(); toast(`Hid all devices in ${home}`); }
 
 function deviceRow(d, full) {
   const btns = d.kind === 'light'
@@ -77,8 +99,10 @@ function deviceRow(d, full) {
        <button class="small" onclick="dev('${d.id}','white')">White</button>`
     : `<button class="small" onclick="dev('${d.id}','on')">On</button>
        <button class="small" onclick="dev('${d.id}','off')">Off</button>`;
-  const kidsToggle = full && d.kind === 'light'
-    ? `<label class="muted" style="display:block;margin-top:6px"><input type="checkbox" style="width:auto;margin:0 6px 0 0" ${d.kids ? 'checked' : ''} onchange="markKids('${d.id}', this.checked)">Kids' light</label>` : '';
+  const kidsToggle = full
+    ? `<div class="row" style="margin-top:6px">` +
+      (d.kind === 'light' ? `<label class="muted"><input type="checkbox" style="width:auto;margin:0 6px 0 0" ${d.kids ? 'checked' : ''} onchange="markKids('${d.id}', this.checked)">Kids' light</label>` : '<span></span>') +
+      `<button class="small" onclick="hideDev('${d.id}', true)">Hide</button></div>` : '';
   const state = !d.online ? 'offline' : d.on ? (d.mode === 'colour' ? 'on · colour' : 'on') : 'off';
   return `<div class="device"><div class="row"><b>${esc(d.name)}</b><span class="pill ${d.on ? 'on' : ''}">${state}${d.power_w != null ? ' · ' + d.power_w + ' W' : ''}</span></div>
     <div class="wrap" style="margin-top:8px">${btns}</div>${kidsToggle}</div>`;

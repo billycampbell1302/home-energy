@@ -278,6 +278,34 @@ def mark_kids(device_id: str, k: KidsFlag):
     return tuya.devices()
 
 
+class HiddenFlag(BaseModel):
+    hidden: bool
+
+
+@app.post("/api/devices/{device_id}/hidden")
+def hide_device(device_id: str, h: HiddenFlag):
+    ids = set(db.get_state("hidden_devices", []))
+    (ids.add if h.hidden else ids.discard)(device_id)
+    db.set_state("hidden_devices", sorted(ids))
+    return tuya.devices()
+
+
+class HomeHidden(BaseModel):
+    home: str
+    hidden: bool
+
+
+@app.post("/api/homes/hidden")
+def hide_home(h: HomeHidden):
+    """Hide or show every device in one Smart Life home (e.g. devices set up at someone else's house)."""
+    ids = set(db.get_state("hidden_devices", []))
+    for d in tuya.devices():
+        if d["home"] == h.home:
+            (ids.add if h.hidden else ids.discard)(d["id"])
+    db.set_state("hidden_devices", sorted(ids))
+    return tuya.devices()
+
+
 class Hold(BaseModel):
     on: bool
 
