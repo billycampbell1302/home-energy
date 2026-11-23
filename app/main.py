@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import db, weather
-from .bright import BrightError, analysis, bright, tariff_settings
+from .bright import BrightError, analysis, auto_update_tariff, bright, contract_guess, tariff_settings
 from .config import ADMIN_PASSWORD, PEOPLE, POLL_MINUTES, PUBLIC_URL, SESSION_SECRET, webhook_token
 from .hive import HiveError, hive
 from .tuya import tuya
@@ -79,6 +79,12 @@ def bright_sync():
     except Exception as e:
         _errors["bright"] = str(e)[:200]
         log.warning("Bright sync failed: %s", e)
+    try:
+        changed = auto_update_tariff()
+        if changed:
+            log.info("Tariff updated from meter: %s", changed)
+    except Exception as e:
+        log.warning("Reading tariff from meter failed: %s", e)
 
 
 async def bright_loop():
@@ -398,6 +404,9 @@ async def energy_sync():
 def energy(days: int = 30):
     a = analysis(max(1, min(days, 400)))
     a["bright_configured"] = bright.is_configured()
+    a["contract"] = contract_guess()
+    a["tariff_history"] = db.get_state("tariff_history", [])[-6:]
+    a["tariff_checked"] = db.get_state("tariff_checked")
     a["last_sync"] = bright.last_sync
     a["error"] = _errors.get("bright")
     return a

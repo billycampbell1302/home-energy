@@ -178,6 +178,61 @@ def _in_window(ts: int, start: str, end: str) -> bool:
     return s <= m < e if s < e else (m >= s or m < e)
 
 
+CAP_CHANGE_DATES = ["2027-01-01", "2027-04-01", "2027-07-01", "2027-10-01", "2028-01-01", "2028-04-01"]
+AUTO_KEYS = ("day_rate", "night_rate", "e7_standing", "gas_rate", "gas_standing")
+
+
+def auto_update_tariff(client=None) -> dict | None:
+    """Reads the prices programmed into the meter and applies any change automatically, logging it.
+
+    Runs after every Bright sync, so a price change by the supplier (or a new price cap) shows up without anyone
+    typing anything. Keeps a dated history, which is also how we tell a fixed tariff from a variable one.
+    """
+    client = client or bright
+    found = client.meter_tariff()["values"]
+    found = {k: v for k, v in found.items() if k in AUTO_KEYS}
+    if not found:
+        return None
+    current = tariff_settings()
+    changed = {k: (current.get(k), v) for k, v in found.items() if abs((current.get(k) or 0) - v) > 0.005}
+    history = db.get_state("tariff_history", [])
+    today = datetime.now().date().isoformat()
+    if changed or not history:
+        db.set_state("tariff", {**current, **found})
+        history.append({"date": today, **found})
+        db.set_state("tariff_history", history[-50:])
+        if changed and len(history) > 1:
+            db.add_event("tariff", {k: f"{a}p → {b}p" for k, (a, b) in changed.items()})
+    db.set_state("tariff_checked", today)
+    return changed
+
+
+def contract_guess() -> dict:
+    """Fixed or variable? Variable tariffs move with the price cap on 1 Jan/Apr/Jul/Oct; fixed ones don't.
+
+    Watches the meter's prices around each cap change date. Needs one cap change to have happened since we
+    started watching, so it says 'not known yet' until then.
+    """
+    history = db.get_state("tariff_history", [])
+    if len(history) == 0:
+        return {"type": "unknown", "why": "Waiting for the first price reading from your meter."}
+    first = history[0]["date"]
+    today = datetime.now().date().isoformat()
+    for cap_day in CAP_CHANGE_DATES:
+        if cap_day <= first:
+            continue
+        settle = (datetime.fromisoformat(cap_day) + timedelta(days=10)).date().isoformat()
+        if today < settle:
+            return {"type": "unknown", "next_check": cap_day,
+                    "why": f"I'll know after the price cap changes on {cap_day}: if your prices change then, you're on a variable tariff; if not, it's fixed."}
+        moved = any(h["date"] >= (datetime.fromisoformat(cap_day) - timedelta(days=3)).date().isoformat() and h["date"] <= settle
+                    for h in history[1:])
+        if moved:
+            return {"type": "variable", "why": f"Your prices changed when the price cap changed on {cap_day}."}
+        return {"type": "fixed", "why": f"Your prices stayed the same when the price cap changed on {cap_day}."}
+    return {"type": "unknown", "why": "Not enough history yet."}
+
+
 def tariff_settings() -> dict:
     return db.get_state("tariff", {
         "day_rate": 30.0, "night_rate": 15.0, "e7_standing": 55.0,

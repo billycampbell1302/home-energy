@@ -258,6 +258,14 @@ async function loadEnergy(days) {
     $('profile-chart').textContent = '';
   }
   drawDaily(e.daily);
+  const t = e.tariff, c = e.contract || {};
+  const label = {fixed: '🔒 Looks like a fixed tariff', variable: '📈 Looks like a variable tariff (follows the price cap)', unknown: '❔ Fixed or variable: not known yet'}[c.type] || '';
+  $('prices').innerHTML = `Electricity: day <b>${t.day_rate}p</b> · night <b>${t.night_rate}p</b> · standing <b>${t.e7_standing}p/day</b><br>
+    Gas: <b>${t.gas_rate}p</b> · standing <b>${t.gas_standing}p/day</b>
+    <div class="muted" style="margin-top:6px">${e.tariff_checked ? 'Read from your meter, last checked ' + new Date(e.tariff_checked).toLocaleDateString('en-GB') + '.' : 'Not read from your meter yet.'}</div>
+    <div style="margin-top:10px">${label}</div><div class="muted">${esc(c.why || '')}</div>` +
+    ((e.tariff_history || []).length > 1 ? `<div class="muted" style="margin-top:8px">Price changes: ` +
+      e.tariff_history.map((h) => `${new Date(h.date).toLocaleDateString('en-GB')}: day ${h.day_rate ?? '–'}p / night ${h.night_rate ?? '–'}p`).join(' · ') + '</div>' : '');
 }
 
 function drawDaily(daily) {
