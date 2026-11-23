@@ -94,12 +94,22 @@ async def bright_loop():
         await asyncio.sleep(6 * 3600)   # smart meter data only arrives about once a day
 
 
+def backfill_step():
+    from . import backfill
+    if hive.is_configured() and hive.last_nodes and not db.get_state("backfill", {}).get("done"):
+        backfill.run(hive)
+
+
 async def poll_loop():
     while True:
         try:
             await asyncio.to_thread(poll_once)
         except Exception as e:
             log.exception("poll failed: %s", e)
+        try:
+            await asyncio.to_thread(backfill_step)   # imports Hive's past history a few months at a time
+        except Exception as e:
+            log.warning("history import: %s", e)
         await asyncio.sleep(POLL_MINUTES * 60)
 
 
@@ -226,7 +236,22 @@ def routine():
 
 @app.get("/api/history")
 def history(hours: int = 24):
-    return db.readings_since(min(hours, 24 * 14) * 3600)
+    """Our own 5-minute readings, plus Hive's imported history for anything older than when we started."""
+    from . import backfill
+    hours = max(1, min(hours, 24 * 365 * 6))
+    rows = db.readings_since(hours * 3600)
+    since = int(time.time()) - hours * 3600
+    first_own = rows[0]["ts"] if rows else int(time.time())
+    older = backfill.history_points(since, 600) if first_own - since > 3600 else []
+    older = [r for r in older if r["ts"] < first_own]
+    step = max(1, len(rows) // 600)
+    return older + rows[::step]
+
+
+@app.get("/api/history/import")
+def history_import_status():
+    st = db.get_state("backfill", {})
+    return {k: st.get(k) for k in ("done", "count", "oldest", "error", "weather_rows", "weather_error")}
 
 
 @app.get("/api/events")

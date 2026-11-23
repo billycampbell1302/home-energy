@@ -176,12 +176,19 @@ async function loadHistory(hours) {
   for (let v = lo; v <= hi; v += Math.max(1, Math.round((hi - lo) / 5))) {
     grid += `<line x1="${P}" x2="${W}" y1="${y(v)}" y2="${y(v)}" stroke="#2a2e38"/><text x="2" y="${y(v) + 4}" fill="#9aa1ad" font-size="10">${v}°</text>`;
   }
-  const fmt = (ts) => new Date(ts * 1000).toLocaleString('en-GB', hours > 24 ? {weekday: 'short', hour: '2-digit'} : {hour: '2-digit', minute: '2-digit'});
+  const fmt = (ts) => new Date(ts * 1000).toLocaleString('en-GB',
+    hours > 24 * 60 ? {month: 'short', year: 'numeric'} : hours > 24 ? {weekday: 'short', day: 'numeric', month: 'short'} : {hour: '2-digit', minute: '2-digit'});
   grid += `<text x="${P}" y="${H - 2}" fill="#9aa1ad" font-size="10">${fmt(t0)}</text><text x="${W - 4}" y="${H - 2}" fill="#9aa1ad" font-size="10" text-anchor="end">${fmt(t1)}</text>`;
   $('chart').innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${bars}${grid}${line('target_temp', '#777', true)}${line('outdoor_temp', '#4da3ff')}${line('indoor_temp', '#ff8a3d')}</svg>`;
   let on = 0;
   rows.forEach((r, i) => { if (r.boiler_on && rows[i + 1]) on += rows[i + 1].ts - r.ts; });
-  $('boiler-hours').textContent = `Boiler ran for about ${(on / 3600).toFixed(1)} hours in this period.`;
+  $('boiler-hours').textContent = rows.some((r) => r.boiler_on != null)
+    ? `Boiler ran for about ${(on / 3600).toFixed(1)} hours (since this app started recording).` : '';
+  const im = await api('/api/history/import');
+  const when = (ts) => new Date(ts * 1000).toLocaleDateString('en-GB', {month: 'long', year: 'numeric'});
+  $('import-status').textContent = im.error && !im.count ? `Couldn't import Hive's past history: ${im.error}`
+    : im.count ? `Imported ${im.count.toLocaleString()} past readings from Hive, back to ${when(im.oldest)}${im.done ? '' : ' (still importing…)'}.`
+    : 'Importing your past Hive history…';
 }
 
 function heatmap(grid, days, color) {
