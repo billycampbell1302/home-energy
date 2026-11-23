@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Home">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0f1115">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon-180.png">
+<link rel="stylesheet" href="/static/style.css">
+<title>Home Energy</title>
+</head>
+<body>
+<header>
+  <h1 id="title">Home</h1>
+  <small id="updated"></small>
+</header>
+
+<main>
+  <!-- HOME -->
+  <section class="tab active" id="tab-home">
+    <div id="errors"></div>
+
+    <div class="card" id="heat-card">
+      <h2>Heating</h2>
+      <div id="heat-none" class="muted">Hive isn't connected yet – go to Setup.</div>
+      <div id="heat-ok" style="display:none">
+        <div class="row">
+          <div>
+            <div class="big" id="indoor">–</div>
+            <div class="muted">inside now</div>
+          </div>
+          <div style="text-align:right">
+            <div><span class="pill" id="boiler">–</span></div>
+            <div class="muted" style="margin-top:6px" id="mode">–</div>
+            <div class="muted" id="outdoor"></div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:16px">
+          <div class="muted">Target</div>
+          <div class="stepper">
+            <button onclick="nudge(-0.5)">−</button>
+            <div style="font-size:26px;min-width:70px;text-align:center" id="target">–</div>
+            <button onclick="nudge(0.5)">+</button>
+          </div>
+        </div>
+        <div class="wrap" style="margin-top:14px">
+          <button class="primary" onclick="boost(30)">Boost 30 min</button>
+          <button onclick="boost(60)">Boost 1 hr</button>
+          <button id="boost-off" onclick="api('/api/heating/boost_off',{}).then(load)" style="display:none">Cancel boost</button>
+        </div>
+        <div class="wrap" style="margin-top:8px">
+          <button class="small" onclick="setMode('SCHEDULE')">Schedule</button>
+          <button class="small" onclick="setMode('MANUAL')">Manual</button>
+          <button class="small" onclick="setMode('OFF')">Off</button>
+          <button class="small" onclick="api('/api/hotwater/boost',{minutes:30}).then(()=>toast('Hot water boosted 30 min'))">Hot water +30</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Who's home</h2>
+      <div id="people" class="wrap"></div>
+      <div class="row" style="margin-top:12px">
+        <div>
+          <div>Kids / guests home</div>
+          <div class="muted">Stops the heating treating the flat as empty</div>
+        </div>
+        <button id="hold" onclick="toggleHold()">Off</button>
+      </div>
+    </div>
+
+    <div class="card" id="kids-card" style="display:none">
+      <h2>Kids' lights</h2>
+      <div id="kids-lights"></div>
+    </div>
+  </section>
+
+  <!-- DEVICES -->
+  <section class="tab" id="tab-devices">
+    <div class="card">
+      <h2>Smart Life devices</h2>
+      <div id="devices" class="muted">Smart Life isn't connected yet – go to Setup.</div>
+    </div>
+  </section>
+
+  <!-- HISTORY -->
+  <section class="tab" id="tab-history">
+    <div class="card">
+      <h2>Temperatures</h2>
+      <div class="wrap" style="margin-bottom:8px">
+        <button class="small" onclick="loadHistory(24)">24 h</button>
+        <button class="small" onclick="loadHistory(72)">3 days</button>
+        <button class="small" onclick="loadHistory(168)">7 days</button>
+      </div>
+      <div id="chart" class="muted">Collecting data – readings are saved every 5 minutes.</div>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--warm)"></i>Inside</span>
+        <span><i class="dot" style="background:#777"></i>Target</span>
+        <span><i class="dot" style="background:var(--cool)"></i>Outside</span>
+        <span><i class="dot" style="background:rgba(255,138,61,.25)"></i>Boiler on</span>
+      </div>
+      <p class="muted" id="boiler-hours"></p>
+    </div>
+    <div class="card">
+      <h2>Activity</h2>
+      <div id="events" class="muted"></div>
+    </div>
+  </section>
+
+  <!-- SETUP -->
+  <section class="tab" id="tab-setup">
+    <div class="card">
+      <h2>1 · Hive heating</h2>
+      <div id="hive-done" class="ok" style="display:none">✓ Connected</div>
+      <div id="hive-form">
+        <p class="muted">Use the Hive account owner's login. Two-factor authentication must be turned on in the Hive app.</p>
+        <input id="hive-user" type="email" placeholder="Hive email" autocomplete="off">
+        <input id="hive-pass" type="password" placeholder="Hive password" autocomplete="off">
+        <button class="primary" onclick="hiveLogin()">Connect</button>
+        <div id="hive-sms" style="display:none;margin-top:10px">
+          <p class="muted">Enter the code Hive just texted you:</p>
+          <input id="hive-code" inputmode="numeric" placeholder="SMS code">
+          <button class="primary" onclick="hiveSms()">Verify</button>
+        </div>
+        <p id="hive-msg" class="err"></p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2 · Smart Life (kids' lights)</h2>
+      <div id="tuya-done" class="ok" style="display:none">✓ Connected</div>
+      <div id="tuya-form">
+        <p class="muted">Smart Life app → Me → ⚙ → Account and Security → User Code.</p>
+        <input id="tuya-code" placeholder="User Code (case sensitive)" autocomplete="off" autocapitalize="off">
+        <button class="primary" onclick="tuyaStart()">Show QR code</button>
+        <div id="qr-box" style="display:none;margin-top:12px">
+          <p class="muted">Scan this with the Smart Life app (tap + → Scan) on the <b>other</b> phone, then confirm the login. It expires in about a minute.</p>
+          <div id="qr"></div>
+          <p class="muted" id="qr-status">Waiting for scan…</p>
+        </div>
+        <p id="tuya-msg" class="err"></p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>3 · Arrive / leave shortcuts</h2>
+      <p class="muted">On each iPhone: Shortcuts app → Automation → + → <b>Arrive</b> → choose Home → <b>Run Immediately</b> → add action <b>Get Contents of URL</b> → paste the Arrive link. Repeat with <b>Leave</b> and the Leave link.</p>
+      <div id="hooks"></div>
+    </div>
+
+    <div class="card">
+      <h2>Add to home screen</h2>
+      <p class="muted">In Safari tap Share → <b>Add to Home Screen</b>. It then opens like a normal app.</p>
+      <button class="small" onclick="api('/api/logout',{}).then(()=>location.href='/login')">Log out</button>
+    </div>
+  </section>
+</main>
+
+<nav>
+  <button class="active" data-tab="home"><span>🏠</span>Home</button>
+  <button data-tab="devices"><span>💡</span>Devices</button>
+  <button data-tab="history"><span>📈</span>History</button>
+  <button data-tab="setup"><span>⚙️</span>Setup</button>
+</nav>
+<div class="toast" id="toast"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
