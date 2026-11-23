@@ -89,6 +89,17 @@ OnUnitActiveSec=15min
 WantedBy=timers.target
 EOF
 
+# Lets the dashboard's "Check for updates" button trigger an update straight away.
+cat > /etc/systemd/system/home-energy-update.path <<UNIT
+[Unit]
+Description=Update Home Energy when requested from the dashboard
+[Path]
+PathChanged=$DATA/update-request
+Unit=home-energy-update.service
+[Install]
+WantedBy=multi-user.target
+UNIT
+
 cat > /etc/caddy/Caddyfile <<EOF
 $DOMAIN {
     encode gzip
@@ -97,6 +108,6 @@ $DOMAIN {
 EOF
 
 systemctl daemon-reload
-systemctl enable --now home-energy home-energy-update.timer
+systemctl enable --now home-energy home-energy-update.timer home-energy-update.path
 systemctl restart caddy
 echo "DONE - open https://$DOMAIN"

@@ -5,6 +5,7 @@ No automatic control happens in phase 1. It watches and records, so the learning
 import asyncio
 import hashlib
 import hmac
+import json
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -319,6 +320,48 @@ class PresenceSet(BaseModel):
 @app.post("/api/presence")
 def presence_manual(p: PresenceSet):
     return _set_presence(p.person, "home" if p.home else "away")
+
+
+# ---------------- app updates ----------------
+APP_DIR = Path(__file__).resolve().parent.parent
+
+
+def _commit() -> str:
+    """Current code version, read straight from git's files (no git command needed)."""
+    try:
+        git = APP_DIR / ".git"
+        head = (git / "HEAD").read_text().strip()
+        if not head.startswith("ref:"):
+            return head[:7]
+        ref = head.split(" ", 1)[1]
+        if (git / ref).exists():
+            return (git / ref).read_text().strip()[:7]
+        for line in (git / "packed-refs").read_text().splitlines():
+            if line.endswith(ref):
+                return line[:7]
+    except Exception:
+        pass
+    return "unknown"
+
+
+@app.get("/api/version")
+def version():
+    from .config import DATA_DIR
+    status = {}
+    try:
+        status = json.loads((DATA_DIR / "update-status.json").read_text())
+    except Exception:
+        pass
+    return {"commit": _commit(), "status": status}
+
+
+@app.post("/api/update")
+def request_update():
+    """Asks the server to pull the latest code from GitHub now (a root service watches this file)."""
+    from .config import DATA_DIR
+    (DATA_DIR / "update-request").write_text(str(time.time()))
+    db.add_event("setup", "Update check requested")
+    return {"ok": True, "commit": _commit()}
 
 
 # ---------------- setup ----------------

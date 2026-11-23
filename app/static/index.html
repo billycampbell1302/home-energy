@@ -152,6 +152,13 @@
     </div>
 
     <div class="card">
+      <h2>App updates</h2>
+      <p class="muted" id="version">Version …</p>
+      <button class="primary" id="update-btn" onclick="checkUpdates()">Check for updates now</button>
+      <p class="muted" id="update-msg"></p>
+    </div>
+
+    <div class="card">
       <h2>Add to home screen</h2>
       <p class="muted">In Safari tap Share → <b>Add to Home Screen</b>. It then opens like a normal app.</p>
       <button class="small" onclick="api('/api/logout',{}).then(()=>location.href='/login')">Log out</button>

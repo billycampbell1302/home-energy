@@ -28,7 +28,7 @@ document.querySelectorAll('nav button').forEach((b) => b.onclick = () => {
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
   $('title').textContent = b.dataset.tab[0].toUpperCase() + b.dataset.tab.slice(1);
   if (b.dataset.tab === 'history') { loadHistory(24); loadEvents(); }
-  if (b.dataset.tab === 'setup') loadSetup();
+  if (b.dataset.tab === 'setup') { loadSetup(); loadVersion(); }
 });
 
 // ---------- home ----------
@@ -151,6 +151,30 @@ async function loadSetup() {
   $('tuya-done').style.display = s.tuya_configured ? 'block' : 'none';
   $('hooks').innerHTML = Object.entries(s.webhooks).map(([p, u]) =>
     `<b>${esc(p)}</b><div class="muted">Arrive</div><div class="url">${esc(u.arrive)}</div><div class="muted">Leave</div><div class="url">${esc(u.leave)}</div>`).join('');
+}
+
+async function loadVersion() {
+  const v = await api('/api/version');
+  const st = v.status && v.status.checked ? ` · last checked ${ago(v.status.checked)} (${v.status.result})` : '';
+  $('version').textContent = `Version ${v.commit}${st}`;
+  return v;
+}
+
+async function checkUpdates() {
+  const btn = $('update-btn'); btn.disabled = true;
+  const before = (await api('/api/update', {})).commit;
+  $('update-msg').textContent = 'Checking GitHub…';
+  const started = Math.floor(Date.now() / 1000) - 5;
+  for (let i = 0; i < 40; i++) {           // up to ~2 minutes (installing new packages can take a while)
+    await new Promise((r) => setTimeout(r, 3000));
+    let v;
+    try { v = await (await fetch('/api/version')).json(); } catch (_) { $('update-msg').textContent = 'Restarting with the new version…'; continue; }
+    if (v.commit && v.commit !== before) { $('update-msg').textContent = `Updated to ${v.commit} – reloading`; setTimeout(() => location.reload(), 1200); return; }
+    if (v.status && v.status.checked >= started && v.status.result !== 'Updated') {
+      $('update-msg').textContent = v.status.result; btn.disabled = false; loadVersion(); return;
+    }
+  }
+  $('update-msg').textContent = 'No answer yet – try again in a minute.'; btn.disabled = false;
 }
 
 async function hiveLogin() {
