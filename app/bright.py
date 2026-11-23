@@ -76,15 +76,15 @@ class BrightClient:
             except Exception:
                 pass
             last = db.last_energy_ts(fuel)
-            now = datetime.now(timezone.utc)
+            now = _floor30(datetime.now(timezone.utc))
             if last:
                 # Re-read the last couple of days too: Bright fills in late half-hours after the fact.
                 start = max(datetime.fromtimestamp(last, timezone.utc) - timedelta(days=2), now - timedelta(days=12))
             else:
                 start = now - timedelta(days=BACKFILL_DAYS)
-            end = datetime.now(timezone.utc)
+            start, end = _floor30(start), now
             n = 0
-            while start < end:
+            while end - start >= timedelta(minutes=30):
                 chunk_end = min(start + timedelta(days=10), end)   # API limit: 10 days of half-hours per call
                 j = self._get(f"/resource/{rid}/readings", {
                     "from": start.strftime("%Y-%m-%dT%H:%M:%S"), "to": chunk_end.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -135,6 +135,11 @@ class BrightClient:
             if g["standing"]:
                 out["gas_standing"] = g["standing"][0]
         return {"values": out, "found": found, "raw": raw}
+
+
+def _floor30(t: datetime) -> datetime:
+    """Round down to the start of a half-hour (Bright rejects ranges that don't line up)."""
+    return t.replace(minute=t.minute - t.minute % 30, second=0, microsecond=0)
 
 
 def _collect(node, rates: set, standing: list, key: str = ""):
