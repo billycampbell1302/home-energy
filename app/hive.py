@@ -154,19 +154,34 @@ class HiveClient:
             return r.json() if r.text else {}
 
     # ---------- reading ----------
-    def track_changes(self):
+    def track_changes(self, people_home: list | None = None):
         """Logs changes made outside this app (on the thermostat or in the Hive app) - each one tells the learning
         what temperature you actually wanted at that time. Also snapshots the Hive schedule once a day."""
         s = self.summary()
         if not s.get("connected"):
             return
         prev = db.get_state("hive_prev", {})
-        cur = {"target": s.get("target_temp"), "mode": s.get("mode")}
+        cur = {"target": s.get("target_temp"), "mode": s.get("mode"), "boost_minutes": s.get("boost_minutes")}
         own_recent = time.time() - db.get_state("hive_last_own_change", 0) < 15 * 60
-        if prev and cur != prev and not own_recent:
+        changed = {k: cur[k] for k in ("target", "mode")} != {k: prev.get(k) for k in ("target", "mode")}
+        if prev and changed and not own_recent:
             # A target change while on schedule is just the schedule moving on - only log real overrides.
             if cur["mode"] != prev.get("mode") or cur["mode"] in ("MANUAL", "BOOST"):
                 db.add_event("manual", {"from": prev, "to": cur, "indoor": s.get("indoor_temp")})
+                # Comfort evidence: up/boost = too cold, down/cancelled boost = too warm (for whoever's home)
+                from . import comfort
+                feeling = None
+                if cur["mode"] == "BOOST" and prev.get("mode") != "BOOST":
+                    feeling = "cold"
+                elif prev.get("mode") == "BOOST" and cur["mode"] != "BOOST" and (prev.get("boost_minutes") or 0) > 5:
+                    feeling = "warm"                      # boost cancelled early
+                elif cur["target"] is not None and prev.get("target") is not None:
+                    if cur["target"] > prev["target"]:
+                        feeling = "cold"
+                    elif cur["target"] < prev["target"]:
+                        feeling = "warm"
+                if feeling and people_home:
+                    comfort.record(people_home, feeling, s.get("indoor_temp"), "hive")
             elif cur["target"] != prev.get("target"):
                 db.add_event("schedule", {"target": cur["target"]})
         db.set_state("hive_prev", cur)

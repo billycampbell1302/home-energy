@@ -33,7 +33,7 @@ function showTab(tab) {
 document.querySelectorAll('nav button').forEach((b) => b.onclick = () => showTab(b.dataset.tab));
 function onTab(tab) {
   const b = {dataset: {tab}};
-  if (tab === 'summary') { loadLearning(); loadSummary(); loadReport(); }
+  if (tab === 'summary') { loadLearning(); loadSummary(); loadReport(); loadComfort(); }
   if (b.dataset.tab === 'history') { loadRoutine(); loadHistory(24); loadEvents(); }
   if (b.dataset.tab === 'energy') loadEnergy(30);
   if (tab === 'devices') { loadAppliances(false); loadOverview(); }
@@ -44,6 +44,7 @@ function onTab(tab) {
 async function load() {
   S = await api('/api/status');
   render();
+  loadComfort();
 }
 
 async function loadSummary() {
@@ -156,9 +157,42 @@ function nudge(delta) {
     finally { pendingTarget = null; render(); }
   }, 1200);
 }
+// Whose phone is this? Asked once, remembered on this phone - so comfort answers count for the right person.
+function me() {
+  let who = null;
+  try { who = localStorage.getItem('me'); } catch (_) {}
+  const people = Object.keys(S.presence || {});
+  if (!who || !people.includes(who)) {
+    who = people.length ? prompt(`Whose phone is this? (${people.join(' or ')})`, people[0]) : null;
+    if (who) who = people.find((p) => p.toLowerCase() === who.trim().toLowerCase()) || null;
+    try { if (who) localStorage.setItem('me', who); } catch (_) {}
+  }
+  return who;
+}
 async function boost(minutes) {
-  const temp = Math.max((S.heating.target_temp || 19) + 1, 20);
-  S.heating = await api('/api/heating/boost', {minutes, temp}); render(); toast(`Boosting to ${temp}° for ${minutes} min`);
+  S.heating = await api('/api/heating/boost', {minutes, person: me()}); render();
+  toast(`Boosting to ${S.heating.target_temp}° for ${minutes} min – stops at your comfortable temperature`);
+  loadComfort();
+}
+async function feel(feeling) {
+  const person = me();
+  if (!person) return;
+  await api('/api/comfort', {person, feeling});
+  toast({cold: 'Noted – you find this too cold', ok: 'Noted – this feels right', warm: 'Noted – you find this too warm'}[feeling]);
+  loadComfort();
+}
+async function loadComfort() {
+  try {
+    const c = await api('/api/comfort');
+    const per = Object.entries(c.now.per_person).map(([p, e]) => `${esc(p)} ${e.temp}°${e.confident ? '' : ' (learning)'}`).join(' · ');
+    $('comfort-line').innerHTML = `Comfortable this ${esc(c.now.period)}: ${per}` + (c.now.who.length > 1 ? ` · together ${c.now.temp}°` : '');
+    if ($('comfort-table')) {
+      const periods = ['morning', 'day', 'evening', 'night'];
+      $('comfort-table').innerHTML = `<table style="width:100%;font-size:14px;border-collapse:collapse"><tr><td></td>${periods.map((x) => `<td class="muted">${x}</td>`).join('')}</tr>` +
+        Object.entries(c.now.per_person).map(([p, e]) => `<tr><td><b>${esc(p)}</b></td>${periods.map((x) => `<td>${e.by_period[x].temp}°<span class="muted" style="font-size:11px">${e.by_period[x].samples ? ' ·' + e.by_period[x].samples : ''}</span></td>`).join('')}</tr>`).join('') +
+        '</table><p class="muted" style="font-size:12px">Small numbers = how many times it has learned from you in that part of the day. Tap 🥶/👍/🥵 on Home whenever it feels off (or right).</p>';
+    }
+  } catch (_) {}
 }
 async function setMode(mode) { S.heating = await api('/api/heating/mode', {mode}); render(); }
 

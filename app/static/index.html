@@ -50,7 +50,16 @@
             <button onclick="nudge(0.5)">+</button>
           </div>
         </div>
-        <div class="wrap" style="margin-top:14px">
+        <div class="row" style="margin-top:14px">
+          <span class="muted">How does it feel?</span>
+          <div class="wrap">
+            <button class="small" onclick="feel('cold')">🥶 Cold</button>
+            <button class="small" onclick="feel('ok')">👍 Right</button>
+            <button class="small" onclick="feel('warm')">🥵 Warm</button>
+          </div>
+        </div>
+        <div class="muted" id="comfort-line" style="font-size:13px;margin-top:4px"></div>
+        <div class="wrap" style="margin-top:12px">
           <button class="primary" onclick="boost(30)">Boost 30 min</button>
           <button onclick="boost(60)">Boost 1 hr</button>
           <button id="boost-off" onclick="api('/api/heating/boost_off',{}).then(load)" style="display:none">Cancel boost</button>
@@ -75,6 +84,11 @@
     <div class="card">
       <h2>Learning</h2>
       <div id="learning" class="muted">Loading…</div>
+    </div>
+
+    <div class="card">
+      <h2>Comfortable temperatures</h2>
+      <div id="comfort-table" class="muted">Loading…</div>
     </div>
     <div class="card">
       <h2>This month</h2>

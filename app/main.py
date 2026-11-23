@@ -44,6 +44,19 @@ def all_devices() -> list:
     return tuya.devices() + (smartthings.devices() if smartthings.is_configured() else [])
 
 
+def comfort_guard(home_now: list):
+    """If a boost (from anywhere) is aiming hotter than the people home find comfortable, trim it to their
+    comfortable temperature - same boost, no overheating. Only once their comfort is learned (3+ data points)."""
+    from . import comfort
+    s = hive.summary()
+    if s.get("mode") != "BOOST" or not home_now or not s.get("target_temp"):
+        return
+    c = comfort.for_people(home_now)
+    if c["confident"] and s["target_temp"] > c["temp"] + 0.5 and (s.get("boost_minutes") or 0) > 5:
+        hive.boost(int(s["boost_minutes"]), c["temp"])
+        db.add_event("comfort", {"trimmed_boost": f"{s['target_temp']}° → {c['temp']}°", "for": ", ".join(c["who"])})
+
+
 def poll_once():
     row = {}
     if smartthings.is_configured():
@@ -57,7 +70,9 @@ def poll_once():
         try:
             s = hive.refresh()
             try:
-                hive.track_changes()
+                home_now = [p for p, v in presence().items() if v["home"]]
+                hive.track_changes(home_now)
+                comfort_guard(home_now)
             except Exception as e:
                 log.warning("Hive change tracking: %s", e)
             row.update(indoor_temp=s.get("indoor_temp"), target_temp=s.get("target_temp"),
@@ -376,7 +391,8 @@ async def refresh():
 # ---------------- controls ----------------
 class Boost(BaseModel):
     minutes: int = 30
-    temp: float = 21.0
+    temp: float | None = None
+    person: str | None = None
 
 
 class Target(BaseModel):
@@ -402,7 +418,44 @@ def _hive_call(fn, *args):
 
 @app.post("/api/heating/boost")
 def heating_boost(b: Boost):
-    return _hive_call(hive.boost, max(15, min(b.minutes, 360)), max(5, min(b.temp, 25)))
+    from . import comfort
+    home_now = [p for p, v in presence().items() if v["home"]]
+    if b.person in PEOPLE and b.person not in home_now:
+        home_now.append(b.person)
+    temp = b.temp
+    if temp is None:
+        c = comfort.for_people(home_now)
+        temp = max(c["temp"], (hive.summary().get("indoor_temp") or 0) + 0.5)   # always at least a little warmer
+        temp = min(temp, c["temp"] + 1)
+    if b.person in PEOPLE:
+        comfort.record([b.person], "cold", hive.summary().get("indoor_temp"), "dashboard")
+    return _hive_call(hive.boost, max(15, min(b.minutes, 360)), max(5, min(temp, 25)))
+
+
+class Feeling(BaseModel):
+    person: str
+    feeling: str
+
+
+@app.post("/api/comfort")
+def comfort_feedback(f: Feeling):
+    from . import comfort
+    if f.person not in PEOPLE:
+        raise HTTPException(400, "Unknown person")
+    indoor = hive.summary().get("indoor_temp")
+    try:
+        outdoor = weather.current()["temp"]
+    except Exception:
+        outdoor = None
+    comfort.record([f.person], f.feeling, indoor, "dashboard", outdoor)
+    return comfort_info()
+
+
+@app.get("/api/comfort")
+def comfort_info():
+    from . import comfort
+    home_now = [p for p, v in presence().items() if v["home"]]
+    return {"now": comfort.for_people(home_now), "people": PEOPLE}
 
 
 @app.post("/api/heating/boost_off")
