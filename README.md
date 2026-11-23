@@ -17,7 +17,7 @@ Nothing is automatic yet. Phase 1 builds up the data that the learning in phases
 
 ## Roadmap
 1. ✅ Foundations: connections, logging and the dashboard
-2. Presence and tariff check: Bright smart meter data, plus Economy 7 vs single rate
+2. ✅ Smart meter data from Bright, Economy 7 vs single-rate check, typical day, always-on use
 3. Smart heating v1: lower the temperature when away and at night, falling back to the normal Hive schedule
 4. Learning: how fast the flat warms up, predicted arrivals and pre-heating
 5. Smart Life plugs for standby cut-offs, bedtime and wake-up light routines, and a monthly savings report

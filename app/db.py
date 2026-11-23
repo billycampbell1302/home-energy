@@ -31,6 +31,12 @@ _conn.executescript(
         detail TEXT
     );
     CREATE INDEX IF NOT EXISTS events_ts ON events(ts);
+    CREATE TABLE IF NOT EXISTS energy (
+        ts INTEGER NOT NULL,          -- start of the half-hour, unix seconds (UTC)
+        fuel TEXT NOT NULL,           -- electricity / gas
+        kwh REAL NOT NULL,
+        PRIMARY KEY (ts, fuel)
+    );
     CREATE TABLE IF NOT EXISTS state (
         key TEXT PRIMARY KEY,
         value TEXT
@@ -89,3 +95,25 @@ def set_state(key: str, value):
             (key, json.dumps(value)),
         )
         _conn.commit()
+
+
+def add_energy(rows) -> int:
+    """rows: (ts, fuel, kwh). Existing half-hours are updated (Bright sometimes revises them)."""
+    with _lock:
+        before = _conn.total_changes
+        _conn.executemany(
+            "INSERT INTO energy (ts, fuel, kwh) VALUES (?,?,?) ON CONFLICT(ts, fuel) DO UPDATE SET kwh=excluded.kwh",
+            rows)
+        _conn.commit()
+        return _conn.total_changes - before
+
+
+def last_energy_ts(fuel: str):
+    with _lock:
+        row = _conn.execute("SELECT MAX(ts) FROM energy WHERE fuel=? AND kwh > 0", (fuel,)).fetchone()
+    return row[0] if row and row[0] else None
+
+
+def energy_since(fuel: str, since: int):
+    with _lock:
+        return _conn.execute("SELECT ts, kwh FROM energy WHERE fuel=? AND ts>=? ORDER BY ts", (fuel, since)).fetchall()

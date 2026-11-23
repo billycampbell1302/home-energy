@@ -110,6 +110,47 @@
     </div>
   </section>
 
+  <!-- ENERGY -->
+  <section class="tab" id="tab-energy">
+    <div class="card" id="energy-none" style="display:none">
+      <h2>Smart meter</h2>
+      <p class="muted">Connect your Bright account on the Setup page to see your electricity and gas use here.</p>
+    </div>
+    <div id="energy-ok" style="display:none">
+      <div class="wrap" style="margin-bottom:10px">
+        <button class="small" onclick="loadEnergy(7)">7 days</button>
+        <button class="small" onclick="loadEnergy(30)">30 days</button>
+        <button class="small" onclick="loadEnergy(90)">90 days</button>
+        <button class="small" onclick="loadEnergy(365)">Year</button>
+        <button class="small" onclick="syncEnergy()">↻ Fetch latest</button>
+      </div>
+      <p class="muted" id="energy-meta"></p>
+
+      <div class="card" id="e7-card">
+        <h2>Economy 7 check</h2>
+        <div id="e7-verdict" style="font-size:18px;font-weight:600"></div>
+        <div id="e7-detail" class="muted" style="margin-top:8px"></div>
+      </div>
+
+      <div class="card">
+        <h2>Daily use</h2>
+        <div id="daily-chart" class="muted"></div>
+        <div class="legend"><span><i class="dot" style="background:var(--cool)"></i>Electricity</span><span><i class="dot" style="background:var(--warm)"></i>Gas</span></div>
+      </div>
+
+      <div class="card">
+        <h2>Typical day (electricity)</h2>
+        <div id="profile-chart" class="muted"></div>
+        <p class="muted">Shaded = your Economy 7 cheap hours.</p>
+      </div>
+
+      <div class="card">
+        <h2>Always-on use</h2>
+        <div id="baseload"></div>
+      </div>
+    </div>
+  </section>
+
   <!-- SETUP -->
   <section class="tab" id="tab-setup">
     <div class="card">
@@ -156,6 +197,25 @@
     </div>
 
     <div class="card">
+      <h2>4 · Smart meter (Bright)</h2>
+      <div id="bright-done" class="ok" style="display:none">✓ Connected</div>
+      <div id="bright-form">
+        <p class="muted">The email and password you use for the Bright app.</p>
+        <input id="bright-user" type="email" placeholder="Bright email" autocomplete="off">
+        <input id="bright-pass" type="password" placeholder="Bright password" autocomplete="off">
+        <button class="primary" onclick="brightLogin()">Connect</button>
+        <p id="bright-msg" class="err"></p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>5 · Your tariff</h2>
+      <p class="muted">From your British Gas bill or app, in pence. Standing charges are pence per day.</p>
+      <div id="tariff-form"></div>
+      <button class="primary" onclick="saveTariff()">Save tariff</button>
+    </div>
+
+    <div class="card">
       <h2>App updates</h2>
       <p class="muted" id="version">Version …</p>
       <button class="primary" id="update-btn" onclick="checkUpdates()">Check for updates now</button>
@@ -173,6 +233,7 @@
 <nav>
   <button class="active" data-tab="home"><span>🏠</span>Home</button>
   <button data-tab="devices"><span>💡</span>Devices</button>
+  <button data-tab="energy"><span>⚡</span>Energy</button>
   <button data-tab="history"><span>📈</span>History</button>
   <button data-tab="setup"><span>⚙️</span>Setup</button>
 </nav>

@@ -28,7 +28,8 @@ document.querySelectorAll('nav button').forEach((b) => b.onclick = () => {
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
   $('title').textContent = b.dataset.tab[0].toUpperCase() + b.dataset.tab.slice(1);
   if (b.dataset.tab === 'history') { loadHistory(24); loadEvents(); }
-  if (b.dataset.tab === 'setup') { loadSetup(); loadVersion(); }
+  if (b.dataset.tab === 'energy') loadEnergy(30);
+  if (b.dataset.tab === 'setup') { loadSetup(); loadVersion(); loadTariffForm(); }
 });
 
 // ---------- home ----------
@@ -172,6 +173,8 @@ async function loadEvents() {
 async function loadSetup() {
   const s = await api('/api/setup');
   $('hive-done').style.display = s.hive_configured ? 'block' : 'none';
+  $('bright-done').style.display = s.bright_configured ? 'block' : 'none';
+  $('bright-form').style.display = s.bright_configured ? 'none' : 'block';
   $('hive-form').style.display = s.hive_configured ? 'none' : 'block';
   if (s.hive_configured) loadZones();
   $('tuya-done').style.display = s.tuya_configured ? 'block' : 'none';
@@ -210,6 +213,113 @@ async function loadZones() {
       ${z.chosen ? '' : `<button class="small" onclick="pickZone('${z.id}')">Use this</button>`}</div>`).join('') : 'No thermostats found.';
 }
 async function pickZone(id) { await api('/api/setup/hive/zone', {id}); await loadZones(); await api('/api/refresh', {}); load(); toast('Thermostat updated'); }
+
+// ---------- energy ----------
+let energyDays = 30;
+const gbp = (v) => '£' + Number(v).toLocaleString('en-GB', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+const pct = (v) => Math.round(v * 100) + '%';
+
+async function loadEnergy(days) {
+  energyDays = days || energyDays;
+  const e = await api('/api/energy?days=' + energyDays);
+  $('energy-none').style.display = e.bright_configured ? 'none' : 'block';
+  $('energy-ok').style.display = e.bright_configured ? 'block' : 'none';
+  if (!e.bright_configured) return;
+  $('energy-meta').textContent = (e.error ? 'Last fetch failed: ' + e.error + '. ' : '') +
+    (e.latest ? `Meter data up to ${new Date(e.latest * 1000).toLocaleString('en-GB', {weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'})}. ` : 'No meter data yet – Bright can take a day or two to fill in. ') +
+    'Smart meter data usually runs about a day behind.';
+  const el = e.electricity;
+  if (el) {
+    const saving = el.per_year_single - el.per_year_e7;
+    $('e7-verdict').innerHTML = saving >= 0
+      ? `✅ Economy 7 is cheaper for you – about <b>${gbp(saving)}/year</b>`
+      : `⚠️ A single-rate tariff would be cheaper – about <b>${gbp(-saving)}/year</b>`;
+    $('e7-detail').innerHTML = `${pct(el.night_share)} of your electricity is used in the cheap hours` +
+      (el.breakeven_share != null ? ` (you need more than ${pct(el.breakeven_share)} for Economy 7 to pay off at these prices).` : '.') +
+      `<br>Last ${el.days_covered} days: ${el.total_kwh} kWh · Economy 7 ${gbp(el.cost_e7)} vs single rate ${gbp(el.cost_single)} (incl. standing charges).` +
+      `<br><span style="font-size:12px">Based on the prices in Setup → Your tariff – check they match your bill.</span>`;
+    $('baseload').innerHTML = `<div class="big" style="font-size:36px">${el.baseload_w} W</div>
+      <div class="muted">is running all the time (fridge, router, standby…). That's roughly <b>${gbp(el.baseload_cost_year)}/year</b>.
+      Under 100 W is good for a flat; anything much higher is worth hunting down with a smart plug.</div>`;
+    drawProfile(el.profile, e.tariff);
+  } else {
+    $('e7-verdict').textContent = 'Waiting for electricity data…'; $('e7-detail').textContent = ''; $('baseload').textContent = '';
+    $('profile-chart').textContent = '';
+  }
+  drawDaily(e.daily);
+}
+
+function drawDaily(daily) {
+  if (!daily.length) { $('daily-chart').textContent = 'No data yet.'; return; }
+  const W = 360, H = 170, P = 26, n = daily.length;
+  const max = Math.max(...daily.map((d) => Math.max(d.electricity, d.gas)), 1);
+  const bw = (W - P) / n;
+  let bars = '';
+  daily.forEach((d, i) => {
+    const x = P + i * bw;
+    const he = d.electricity / max * (H - 30), hg = d.gas / max * (H - 30);
+    bars += `<rect x="${x}" y="${H - 18 - hg}" width="${Math.max(1, bw * 0.45)}" height="${hg}" fill="#ff8a3d"><title>${d.date} gas ${d.gas} kWh</title></rect>`;
+    bars += `<rect x="${x + bw * 0.45}" y="${H - 18 - he}" width="${Math.max(1, bw * 0.45)}" height="${he}" fill="#4da3ff"><title>${d.date} electricity ${d.electricity} kWh</title></rect>`;
+  });
+  const fmt = (s) => new Date(s).toLocaleDateString('en-GB', {day: 'numeric', month: 'short'});
+  const axis = `<text x="2" y="14" fill="#9aa1ad" font-size="10">${Math.round(max)} kWh</text>
+    <text x="${P}" y="${H - 2}" fill="#9aa1ad" font-size="10">${fmt(daily[0].date)}</text>
+    <text x="${W - 2}" y="${H - 2}" fill="#9aa1ad" font-size="10" text-anchor="end">${fmt(daily[n - 1].date)}</text>`;
+  $('daily-chart').innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${axis}${bars}</svg>`;
+}
+
+function drawProfile(profile, t) {
+  const W = 360, H = 150, P = 26;
+  const max = Math.max(...profile, 0.05);
+  const bw = (W - P) / 48;
+  // Economy 7 window is in GMT; shift to local time for display.
+  const off = -new Date().getTimezoneOffset() / 30;  // half-hours ahead of GMT
+  const toSlot = (hm) => { const [h, m] = hm.split(':').map(Number); return ((h * 2 + Math.floor(m / 30) + off) % 48 + 48) % 48; };
+  const s0 = toSlot(t.night_start), s1 = toSlot(t.night_end);
+  let shade = '';
+  for (let i = 0; i < 48; i++) {
+    const inN = s0 < s1 ? (i >= s0 && i < s1) : (i >= s0 || i < s1);
+    if (inN) shade += `<rect x="${P + i * bw}" y="6" width="${bw}" height="${H - 24}" fill="rgba(77,163,255,.12)"/>`;
+  }
+  const bars = profile.map((v, i) => `<rect x="${P + i * bw + 1}" y="${H - 18 - v / max * (H - 30)}" width="${bw - 2}" height="${v / max * (H - 30)}" fill="#4da3ff"/>`).join('');
+  let labels = '';
+  for (const h of [0, 6, 12, 18]) labels += `<text x="${P + h * 2 * bw}" y="${H - 2}" fill="#9aa1ad" font-size="10">${String(h).padStart(2, '0')}:00</text>`;
+  labels += `<text x="2" y="14" fill="#9aa1ad" font-size="10">${max.toFixed(2)} kWh</text>`;
+  $('profile-chart').innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${shade}${bars}${labels}</svg>`;
+}
+
+async function syncEnergy() {
+  toast('Fetching from Bright…');
+  const r = await api('/api/energy/sync', {});
+  toast(r.error ? 'Bright: ' + r.error : 'Up to date');
+  loadEnergy();
+}
+
+async function brightLogin() {
+  $('bright-msg').textContent = '';
+  try {
+    await api('/api/setup/bright', {username: $('bright-user').value, password: $('bright-pass').value});
+    toast('Bright connected – downloading your history in the background');
+    loadSetup();
+  } catch (e) { $('bright-msg').textContent = e.message; }
+}
+
+const TARIFF_FIELDS = [
+  ['day_rate', 'Economy 7 day rate (p/kWh)'], ['night_rate', 'Economy 7 night rate (p/kWh)'],
+  ['e7_standing', 'Economy 7 standing charge (p/day)'], ['night_start', 'Cheap hours start (GMT, e.g. 00:30)'],
+  ['night_end', 'Cheap hours end (GMT, e.g. 07:30)'], ['single_rate', 'Single-rate tariff to compare (p/kWh)'],
+  ['single_standing', 'Single-rate standing charge (p/day)'], ['gas_rate', 'Gas rate (p/kWh)'], ['gas_standing', 'Gas standing charge (p/day)'],
+];
+async function loadTariffForm() {
+  const e = await api('/api/energy?days=1');
+  $('tariff-form').innerHTML = TARIFF_FIELDS.map(([k, label]) =>
+    `<label class="muted" style="font-size:13px">${label}</label><input id="t-${k}" value="${esc(e.tariff[k])}" ${k.includes('night_s') || k.includes('night_e') ? '' : 'inputmode="decimal"'}>`).join('');
+}
+async function saveTariff() {
+  const body = {};
+  for (const [k] of TARIFF_FIELDS) body[k] = k.startsWith('night_') ? $('t-' + k).value.trim() : parseFloat($('t-' + k).value);
+  await api('/api/tariff', body); toast('Tariff saved');
+}
 
 async function hiveLogin() {
   $('hive-msg').textContent = '';

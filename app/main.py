@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import db, weather
+from .bright import BrightError, analysis, bright, tariff_settings
 from .config import ADMIN_PASSWORD, PEOPLE, POLL_MINUTES, PUBLIC_URL, SESSION_SECRET, webhook_token
 from .hive import HiveError, hive
 from .tuya import tuya
@@ -68,6 +69,24 @@ def poll_once():
     db.add_reading(**row)
 
 
+def bright_sync():
+    if not bright.is_configured():
+        return
+    try:
+        added = bright.sync()
+        _errors.pop("bright", None)
+        log.info("Bright sync: %s", added)
+    except Exception as e:
+        _errors["bright"] = str(e)[:200]
+        log.warning("Bright sync failed: %s", e)
+
+
+async def bright_loop():
+    while True:
+        await asyncio.to_thread(bright_sync)
+        await asyncio.sleep(6 * 3600)   # smart meter data only arrives about once a day
+
+
 async def poll_loop():
     while True:
         try:
@@ -79,9 +98,10 @@ async def poll_loop():
 
 @asynccontextmanager
 async def lifespan(app):
-    task = asyncio.create_task(poll_loop())
+    tasks = [asyncio.create_task(poll_loop()), asyncio.create_task(bright_loop())]
     yield
-    task.cancel()
+    for t in tasks:
+        t.cancel()
 
 
 app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None)
@@ -350,6 +370,61 @@ def presence_manual(p: PresenceSet):
     return _set_presence(p.person, "home" if p.home else "away")
 
 
+# ---------------- smart meter / tariff ----------------
+class BrightLogin(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/setup/bright")
+async def setup_bright(b: BrightLogin):
+    try:
+        await asyncio.to_thread(bright.login, b.username.strip(), b.password)
+    except BrightError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(400, f"Couldn't reach Bright: {e}")
+    asyncio.create_task(asyncio.to_thread(bright_sync))   # first download can take a minute - runs in the background
+    return {"ok": True}
+
+
+@app.post("/api/energy/sync")
+async def energy_sync():
+    await asyncio.to_thread(bright_sync)
+    return {"ok": True, "error": _errors.get("bright")}
+
+
+@app.get("/api/energy")
+def energy(days: int = 30):
+    a = analysis(max(1, min(days, 400)))
+    a["bright_configured"] = bright.is_configured()
+    a["last_sync"] = bright.last_sync
+    a["error"] = _errors.get("bright")
+    return a
+
+
+class Tariff(BaseModel):
+    day_rate: float
+    night_rate: float
+    e7_standing: float
+    single_rate: float
+    single_standing: float
+    night_start: str
+    night_end: str
+    gas_rate: float
+    gas_standing: float
+
+
+@app.post("/api/tariff")
+def save_tariff(t: Tariff):
+    for v in (t.night_start, t.night_end):
+        h, _, m = v.partition(":")
+        if not (h.isdigit() and m.isdigit() and int(h) < 24 and int(m) < 60):
+            raise HTTPException(400, "Times must look like 00:30")
+    db.set_state("tariff", t.model_dump())
+    return tariff_settings()
+
+
 # ---------------- app updates ----------------
 APP_DIR = Path(__file__).resolve().parent.parent
 
@@ -399,6 +474,7 @@ def setup_info():
     return {
         "hive_configured": hive.is_configured(),
         "tuya_configured": tuya.is_configured(),
+        "bright_configured": bright.is_configured(),
         "people": PEOPLE,
         "webhooks": {
             p: {

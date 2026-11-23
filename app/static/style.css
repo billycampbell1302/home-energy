@@ -35,7 +35,7 @@ input { font: inherit; width: 100%; padding: 12px; border-radius: 12px; border: 
 .ok { color: var(--ok); }
 nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex; background: rgba(15,17,21,.95);
   border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); backdrop-filter: blur(10px); }
-nav button { flex: 1; background: none; border-radius: 0; padding: 12px 0 10px; color: var(--muted); font-size: 13px; }
+nav button { flex: 1; background: none; border-radius: 0; padding: 12px 0 10px; color: var(--muted); font-size: 12px; }
 nav button.active { color: var(--warm); }
 nav span { display: block; font-size: 20px; }
 .tab { display: none; } .tab.active { display: block; }
