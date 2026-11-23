@@ -4,3 +4,4 @@ pyhiveapi==0.5.16
 tuya-device-sharing-sdk==0.2.15
 requests>=2.31
 qrcode>=7.4
+cryptography>=41
