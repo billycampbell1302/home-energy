@@ -36,6 +36,22 @@ document.querySelectorAll('nav button').forEach((b) => b.onclick = () => {
 async function load() {
   S = await api('/api/status');
   render();
+  loadSummary();
+}
+
+async function loadSummary() {
+  try {
+    const items = await api('/api/insights');
+    const icon = {todo: '⚠️', tip: '💡', good: '✅'};
+    const head = {todo: 'To do', tip: 'You could', good: 'Going well'};
+    let html = '', last = null;
+    for (const i of items) {
+      if (i.level !== last) { html += `<div class="muted" style="margin:${last ? 12 : 0}px 0 4px;font-size:13px;text-transform:uppercase;letter-spacing:.05em">${head[i.level]}</div>`; last = i.level; }
+      html += `<div style="padding:6px 0"><div>${icon[i.level]} <b>${esc(i.title)}</b></div>${i.detail ? `<div class="muted">${esc(i.detail)}</div>` : ''}</div>`;
+    }
+    $('summary').innerHTML = html;
+    $('summary-card').style.display = items.length ? 'block' : 'none';
+  } catch (_) {}
 }
 
 function render() {
