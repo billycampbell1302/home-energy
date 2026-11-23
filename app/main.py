@@ -22,6 +22,7 @@ from .bright import BrightError, analysis, auto_update_tariff, bright, contract_
 from .config import ADMIN_PASSWORD, PEOPLE, POLL_MINUTES, PUBLIC_URL, SESSION_SECRET, webhook_token
 from .hive import HiveError, hive
 from .tuya import tuya
+from . import smartthings
 
 log = logging.getLogger("home-energy")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -39,8 +40,19 @@ def presence() -> dict:
     return p
 
 
+def all_devices() -> list:
+    return tuya.devices() + (smartthings.devices() if smartthings.is_configured() else [])
+
+
 def poll_once():
     row = {}
+    if smartthings.is_configured():
+        try:
+            smartthings.refresh()
+            _errors.pop("smartthings", None)
+        except Exception as e:
+            _errors["smartthings"] = str(e)[:200]
+            log.warning("SmartThings poll failed: %s", e)
     if hive.is_configured():
         try:
             s = hive.refresh()
@@ -53,15 +65,19 @@ def poll_once():
             log.warning("Hive poll failed: %s", e)
     if tuya.is_configured():
         try:
-            devs = tuya.refresh()
-            # Lights only count as someone in if they've been used since the last phone left, or are on
-            # night red at night - lights simply left on are ignored (see presence.py).
-            update_light_activity(devs)
-            row["kids_lights_on"] = int(lights_signal(devs, presence())["someone_in"] and not any(v["home"] for v in presence().values()))
+            tuya.refresh()
             _errors.pop("tuya", None)
         except Exception as e:
             _errors["tuya"] = str(e)[:200]
             log.warning("Smart Life poll failed: %s", e)
+    devs = all_devices()
+    if devs:
+        try:
+            # Lights/TV only count as someone in if used since the last phone left, or a light's on night red at night.
+            update_light_activity(devs)
+            row["kids_lights_on"] = int(lights_signal(devs, presence())["someone_in"] and not any(v["home"] for v in presence().values()))
+        except Exception as e:
+            log.warning("presence from devices failed: %s", e)
     try:
         w = weather.current()
         row["outdoor_temp"] = w["temp"]
@@ -229,10 +245,10 @@ def status():
         "heating": hive.summary() if hive.last_nodes else {"connected": False, "configured": hive.is_configured()},
         "hive_configured": hive.is_configured(),
         "tuya_configured": tuya.is_configured(),
-        "devices": tuya.devices(),
+        "devices": all_devices(),
         "weather": w,
         "presence": presence(),
-        "lights_signal": lights_signal(tuya.devices(), presence()),
+        "lights_signal": lights_signal(all_devices(), presence()),
         "hold": bool(db.get_state("hold", False)),
         "errors": _errors,
         "now": int(time.time()),
@@ -341,10 +357,14 @@ class DeviceAction(BaseModel):
 @app.post("/api/devices/{device_id}")
 def device_action(device_id: str, a: DeviceAction):
     try:
-        tuya.command(device_id, a.action)
+        if device_id.startswith("st:"):
+            smartthings.command(device_id, a.action)
+            smartthings.refresh()
+        else:
+            tuya.command(device_id, a.action)
     except Exception as e:
-        raise HTTPException(400, f"Smart Life: {e}")
-    return tuya.devices()
+        raise HTTPException(400, f"{'SmartThings' if device_id.startswith('st:') else 'Smart Life'}: {e}")
+    return all_devices()
 
 
 class KidsFlag(BaseModel):
@@ -368,7 +388,7 @@ def hide_device(device_id: str, h: HiddenFlag):
     ids = set(db.get_state("hidden_devices", []))
     (ids.add if h.hidden else ids.discard)(device_id)
     db.set_state("hidden_devices", sorted(ids))
-    return tuya.devices()
+    return all_devices()
 
 
 class HomeHidden(BaseModel):
@@ -380,11 +400,11 @@ class HomeHidden(BaseModel):
 def hide_home(h: HomeHidden):
     """Hide or show every device in one Smart Life home (e.g. devices set up at someone else's house)."""
     ids = set(db.get_state("hidden_devices", []))
-    for d in tuya.devices():
+    for d in all_devices():
         if d["home"] == h.home:
             (ids.add if h.hidden else ids.discard)(d["id"])
     db.set_state("hidden_devices", sorted(ids))
-    return tuya.devices()
+    return all_devices()
 
 
 class Hold(BaseModel):
@@ -532,6 +552,34 @@ async def appliances(refresh: bool = False):
     return {"configured": True, "appliances": items, "error": _errors.get("connectlife")}
 
 
+# ---------------- SmartThings (Samsung TV) ----------------
+class PAT(BaseModel):
+    token: str
+
+
+@app.post("/api/setup/smartthings")
+def setup_smartthings(t: PAT):
+    try:
+        return {"url": smartthings.register_app(t.token)}
+    except smartthings.STError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(400, f"Couldn't reach SmartThings: {e}")
+
+
+@app.get("/api/smartthings/callback")
+def smartthings_callback(code: str = "", state: str = "", error: str = ""):
+    if error or not code:
+        return RedirectResponse("/?smartthings=cancelled")
+    try:
+        smartthings.finish_oauth(code, state)
+        smartthings.refresh()
+    except Exception as e:
+        log.warning("SmartThings callback: %s", e)
+        return RedirectResponse("/?smartthings=failed")
+    return RedirectResponse("/?smartthings=ok")
+
+
 # ---------------- app updates ----------------
 APP_DIR = Path(__file__).resolve().parent.parent
 
@@ -582,6 +630,7 @@ def setup_info():
         "hive_configured": hive.is_configured(),
         "tuya_configured": tuya.is_configured(),
         "bright_configured": bright.is_configured(),
+        "smartthings_configured": smartthings.is_configured(),
         "connectlife_configured": __import__("app.connectlife", fromlist=["x"]).is_configured(),
         "people": PEOPLE,
         "webhooks": {

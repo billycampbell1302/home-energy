@@ -234,6 +234,8 @@ async function loadSetup() {
   $('hive-done').style.display = s.hive_configured ? 'block' : 'none';
   $('bright-done').style.display = s.bright_configured ? 'block' : 'none';
   $('cl-done').style.display = s.connectlife_configured ? 'block' : 'none';
+  $('st-done').style.display = s.smartthings_configured ? 'block' : 'none';
+  $('st-form').style.display = s.smartthings_configured ? 'none' : 'block';
   $('cl-form').style.display = s.connectlife_configured ? 'none' : 'block';
   $('bright-form').style.display = s.bright_configured ? 'none' : 'block';
   $('hive-form').style.display = s.hive_configured ? 'none' : 'block';
@@ -375,6 +377,14 @@ async function syncEnergy() {
   loadEnergy();
 }
 
+async function stStart() {
+  $('st-msg').textContent = '';
+  try {
+    const r = await api('/api/setup/smartthings', {token: $('st-pat').value});
+    $('st-link').href = r.url; $('st-approve').style.display = 'block';
+  } catch (e) { $('st-msg').textContent = e.message; }
+}
+
 async function clLogin() {
   $('cl-msg').textContent = 'Connecting…';
   try {
@@ -485,6 +495,13 @@ async function tuyaStart() {
 
 // ---------- start ----------
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
+{
+  const q = new URLSearchParams(location.search).get('smartthings');
+  if (q) {
+    history.replaceState(null, '', '/');
+    setTimeout(() => toast({ok: 'SmartThings connected – your TV is on the Devices tab', failed: 'SmartThings approval failed – try the setup again', cancelled: 'SmartThings approval cancelled'}[q] || ''), 500);
+  }
+}
 load();
 setInterval(() => { if (!document.hidden && pendingTarget === null) load(); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });

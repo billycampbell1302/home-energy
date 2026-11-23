@@ -30,7 +30,7 @@ def update_light_activity(devices: list) -> None:
     activity = db.get_state("light_activity", {})
     now = int(time.time())
     for d in devices:
-        if d["kind"] != "light" or d["hidden"]:
+        if d["kind"] not in ("light", "tv") or d["hidden"]:
             continue
         if d["id"] in sigs and sigs[d["id"]] != d["sig"]:
             activity[d["id"]] = now
@@ -41,7 +41,7 @@ def update_light_activity(devices: list) -> None:
 
 def lights_signal(devices: list, presence: dict) -> dict:
     """Returns {"someone_in": bool, "why": str, "ignored": [names of lights left on]}."""
-    lights = [d for d in devices if d["kind"] == "light" and not d["hidden"] and d.get("online", True)]
+    lights = [d for d in devices if d["kind"] in ("light", "tv") and not d["hidden"] and d.get("online", True)]
     on = [d for d in lights if d["on"]]
     if phones_home(presence):
         return {"someone_in": True, "why": "", "ignored": []}
@@ -50,7 +50,7 @@ def lights_signal(devices: list, presence: dict) -> dict:
     used = [d for d in lights if activity.get(d["id"], 0) > since]
     hour = datetime.now().hour
     night = hour >= NIGHT_START or hour < NIGHT_END
-    red = [d for d in on if d.get("red")] if night else []
+    red = [d for d in on if d.get("red") and d["kind"] == "light"] if night else []
     if used:
         return {"someone_in": True, "why": f"{used[0]['name']} was used since you left", "ignored": []}
     if red:

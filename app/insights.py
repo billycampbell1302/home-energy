@@ -24,7 +24,7 @@ def _readings(days: int):
 def build(hive_ok: bool, tuya_ok: bool, errors: dict | None = None) -> list:
     items = []
     add = lambda level, title, detail="": items.append({"level": level, "title": title, "detail": detail})
-    names = {"hive": "Hive", "tuya": "Smart Life", "bright": "Bright (smart meter)", "weather": "Weather"}
+    names = {"hive": "Hive", "tuya": "Smart Life", "bright": "Bright (smart meter)", "weather": "Weather", "smartthings": "SmartThings", "connectlife": "ConnectLife"}
     for k, msg in (errors or {}).items():
         add("todo", f"{names.get(k, k)} isn't responding", f"It'll keep retrying by itself. Last error: {msg[:120]}")
 
