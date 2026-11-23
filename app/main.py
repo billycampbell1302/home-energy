@@ -116,9 +116,22 @@ async def poll_loop():
         await asyncio.sleep(POLL_MINUTES * 60)
 
 
+async def appliance_loop():
+    from . import connectlife
+    while True:
+        if connectlife.is_configured():
+            try:
+                await connectlife.refresh()
+                _errors.pop("connectlife", None)
+            except Exception as e:
+                _errors["connectlife"] = str(e)[:200]
+                log.warning("ConnectLife poll failed: %s", e)
+        await asyncio.sleep(180)   # every 3 minutes - gentle on ConnectLife's servers
+
+
 @asynccontextmanager
 async def lifespan(app):
-    tasks = [asyncio.create_task(poll_loop()), asyncio.create_task(bright_loop())]
+    tasks = [asyncio.create_task(poll_loop()), asyncio.create_task(bright_loop()), asyncio.create_task(appliance_loop())]
     yield
     for t in tasks:
         t.cancel()
@@ -488,6 +501,37 @@ def save_tariff(t: Tariff):
     return tariff_settings()
 
 
+# ---------------- ConnectLife appliances ----------------
+class ConnectLifeLogin(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/setup/connectlife")
+async def setup_connectlife(b: ConnectLifeLogin):
+    from . import connectlife
+    try:
+        return {"appliances": await connectlife.login(b.username.strip(), b.password)}
+    except Exception as e:
+        raise HTTPException(400, f"ConnectLife login failed: {str(e)[:200]}")
+
+
+@app.get("/api/appliances")
+async def appliances(refresh: bool = False):
+    from . import connectlife
+    if not connectlife.is_configured():
+        return {"configured": False, "appliances": []}
+    if refresh:
+        try:
+            await connectlife.refresh()
+        except Exception as e:
+            raise HTTPException(502, f"ConnectLife: {str(e)[:200]}")
+    items = connectlife.appliances()
+    for a in items:
+        a["changing"] = connectlife.changed_fields(a["puid"])
+    return {"configured": True, "appliances": items, "error": _errors.get("connectlife")}
+
+
 # ---------------- app updates ----------------
 APP_DIR = Path(__file__).resolve().parent.parent
 
@@ -538,6 +582,7 @@ def setup_info():
         "hive_configured": hive.is_configured(),
         "tuya_configured": tuya.is_configured(),
         "bright_configured": bright.is_configured(),
+        "connectlife_configured": __import__("app.connectlife", fromlist=["x"]).is_configured(),
         "people": PEOPLE,
         "webhooks": {
             p: {

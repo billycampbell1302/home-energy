@@ -36,6 +36,7 @@ function onTab(tab) {
   if (tab === 'summary') loadSummary();
   if (b.dataset.tab === 'history') { loadRoutine(); loadHistory(24); loadEvents(); }
   if (b.dataset.tab === 'energy') loadEnergy(30);
+  if (tab === 'devices') loadAppliances(false);
   if (b.dataset.tab === 'setup') { loadSetup(); loadVersion(); loadTariffForm(); }
 }
 
@@ -232,6 +233,8 @@ async function loadSetup() {
   const s = await api('/api/setup');
   $('hive-done').style.display = s.hive_configured ? 'block' : 'none';
   $('bright-done').style.display = s.bright_configured ? 'block' : 'none';
+  $('cl-done').style.display = s.connectlife_configured ? 'block' : 'none';
+  $('cl-form').style.display = s.connectlife_configured ? 'none' : 'block';
   $('bright-form').style.display = s.bright_configured ? 'none' : 'block';
   $('hive-form').style.display = s.hive_configured ? 'none' : 'block';
   if (s.hive_configured) loadZones();
@@ -370,6 +373,32 @@ async function syncEnergy() {
   const r = await api('/api/energy/sync', {});
   toast(r.error ? 'Bright: ' + r.error : 'Up to date');
   loadEnergy();
+}
+
+async function clLogin() {
+  $('cl-msg').textContent = 'Connecting…';
+  try {
+    const r = await api('/api/setup/connectlife', {username: $('cl-user').value, password: $('cl-pass').value});
+    $('cl-msg').textContent = '';
+    toast(`ConnectLife connected – ${r.appliances.length} appliance(s) found`);
+    loadSetup();
+  } catch (e) { $('cl-msg').textContent = e.message; }
+}
+
+async function loadAppliances(refresh) {
+  const r = await api('/api/appliances' + (refresh ? '?refresh=true' : ''));
+  $('appl-card').style.display = r.configured ? 'block' : 'none';
+  if (!r.configured) return;
+  $('appliances').innerHTML = (r.error ? `<p class="err">${esc(r.error)}</p>` : '') +
+    (r.appliances.length ? r.appliances.map((a) => {
+      const fields = Object.entries(a.status || {});
+      const changing = (a.changing || []).map((k) => `${esc(k)} = ${esc(a.status[k])}`).join('<br>');
+      return `<div class="device"><div class="row"><b>${esc(a.name)}</b><span class="pill">${a.offline ? 'offline' : 'online'}</span></div>
+        <div class="muted">${esc(a.type || '')} · ${fields.length} readings · updated ${ago(a.updated)}</div>
+        ${changing ? `<div class="muted" style="margin-top:6px"><b>Changed recently:</b><br>${changing}</div>` : '<div class="muted" style="margin-top:6px">Run a wash and the fields that change will show here.</div>'}
+        <details style="margin-top:6px"><summary class="muted">Everything it reports</summary><div class="url">${fields.map(([k, v]) => `${esc(k)}: ${esc(v)}`).join('<br>')}</div></details></div>`;
+    }).join('') : '<p class="muted">No appliances found on this ConnectLife account.</p>') +
+    `<button class="small" style="margin-top:8px" onclick="loadAppliances(true)">↻ Refresh</button>`;
 }
 
 async function brightLogin() {

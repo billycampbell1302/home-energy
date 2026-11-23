@@ -90,6 +90,11 @@
         <button id="hold" onclick="toggleHold()">Off</button>
       </div>
     </div>
+    <div class="card" id="appl-card" style="display:none">
+      <h2>Appliances</h2>
+      <div id="appliances"></div>
+    </div>
+
     <div class="card">
       <h2>Smart Life devices</h2>
       <div id="devices" class="muted">Smart Life isn't connected yet – go to Setup.</div>
@@ -240,6 +245,18 @@
       <p class="muted" id="meter-tariff-msg"></p>
       <div id="tariff-form"></div>
       <button class="primary" onclick="saveTariff()">Save tariff</button>
+    </div>
+
+    <div class="card">
+      <h2>6 · Washer-dryer (ConnectLife)</h2>
+      <div id="cl-done" class="ok" style="display:none">✓ Connected</div>
+      <div id="cl-form">
+        <p class="muted">The email and password you use for the ConnectLife app.</p>
+        <input id="cl-user" type="email" placeholder="ConnectLife email" autocomplete="off">
+        <input id="cl-pass" type="password" placeholder="ConnectLife password" autocomplete="off">
+        <button class="primary" onclick="clLogin()">Connect</button>
+        <p id="cl-msg" class="err"></p>
+      </div>
     </div>
 
     <div class="card">
