@@ -225,18 +225,29 @@ async function loadEnergy(days) {
   $('energy-none').style.display = e.bright_configured ? 'none' : 'block';
   $('energy-ok').style.display = e.bright_configured ? 'block' : 'none';
   if (!e.bright_configured) return;
-  $('energy-meta').textContent = (e.error ? 'Last fetch failed: ' + e.error + '. ' : '') +
-    (e.latest ? `Meter data up to ${new Date(e.latest * 1000).toLocaleString('en-GB', {weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'})}. ` : 'No meter data yet – Bright can take a day or two to fill in. ') +
-    'Smart meter data usually runs about a day behind.';
+  const fmtD = (ts) => new Date(ts * 1000).toLocaleDateString('en-GB', {weekday: 'short', day: 'numeric', month: 'short'});
+  const behindDays = e.latest ? Math.floor((Date.now() / 1000 - e.latest) / 86400) : null;
+  $('energy-meta').innerHTML = (e.error ? 'Last fetch failed: ' + esc(e.error) + '. ' : '') +
+    (!e.latest ? 'No meter data yet – Bright can take a day or two to fill in.'
+      : behindDays > 2
+        ? `⚠️ Bright only has your meter data up to <b>${fmtD(e.latest)}</b> (${behindDays} days ago), so this shows the ${energyDays} days up to then. ` +
+          `Bright usually fills gaps in by itself within a few days – if it hasn't by the weekend, email support@glowmarkt.com and ask for a manual data pull.`
+        : `Meter data up to ${fmtD(e.latest)}. Smart meter data usually runs about a day behind.`) +
+    (e.first ? ` History starts ${fmtD(e.first)}.` : '');
   const el = e.electricity;
-  if (el) {
+  if (el && el.total_kwh < 5) {
+    $('e7-verdict').textContent = 'Not enough data yet for a reliable answer.';
+    $('e7-detail').textContent = `Only ${el.total_kwh} kWh recorded in this period – check back once Bright has a couple of weeks.`;
+    $('baseload').textContent = ''; $('profile-chart').textContent = '';
+  } else if (el) {
     const saving = el.per_year_single - el.per_year_e7;
     $('e7-verdict').innerHTML = saving >= 0
       ? `✅ Economy 7 is cheaper for you – about <b>${gbp(saving)}/year</b>`
       : `⚠️ A single-rate tariff would be cheaper – about <b>${gbp(-saving)}/year</b>`;
     $('e7-detail').innerHTML = `${pct(el.night_share)} of your electricity is used in the cheap hours` +
       (el.breakeven_share != null ? ` (you need more than ${pct(el.breakeven_share)} for Economy 7 to pay off at these prices).` : '.') +
-      `<br>Last ${el.days_covered} days: ${el.total_kwh} kWh · Economy 7 ${gbp(el.cost_e7)} vs single rate ${gbp(el.cost_single)} (incl. standing charges).` +
+      (el.days_covered < 14 ? `<br><b>Only ${el.days_covered} days of data – treat this as a rough guide for now.</b>` : '') +
+      `<br>${el.days_covered} days of data: ${el.total_kwh} kWh · Economy 7 ${gbp(el.cost_e7)} vs single rate ${gbp(el.cost_single)} (incl. standing charges).` +
       `<br><span style="font-size:12px">Based on the prices in Setup → Your tariff – check they match your bill.</span>`;
     $('baseload').innerHTML = `<div class="big" style="font-size:36px">${el.baseload_w} W</div>
       <div class="muted">is running all the time (fridge, router, standby…). That's roughly <b>${gbp(el.baseload_cost_year)}/year</b>.

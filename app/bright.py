@@ -188,11 +188,23 @@ def tariff_settings() -> dict:
 
 
 def analysis(days: int = 30) -> dict:
+    """Analyses the most recent `days` days *of real meter data*.
+
+    Bright fills not-yet-received half-hours with zeros. A home's electricity never reads exactly zero
+    (the fridge alone sees to that), so zero electricity = missing data. The window ends at the last real reading,
+    so a gap in Bright's data (e.g. around a supplier switch) doesn't produce a nonsense answer.
+    """
     t = tariff_settings()
-    since = int(time.time()) - days * 86400
-    elec = db.energy_since("electricity", since)
-    gas = db.energy_since("gas", since)
-    out = {"days": days, "tariff": t, "has_elec": bool(elec), "has_gas": bool(gas)}
+    all_elec = [r for r in db.energy_since("electricity", 0) if r[1] > 0]
+    latest = all_elec[-1][0] if all_elec else None
+    end = (latest + 1800) if latest else int(time.time())
+    since = end - days * 86400
+    elec = [r for r in all_elec if r[0] >= since]
+    have = {ts for ts, _ in elec}
+    # Gas: only count half-hours where the electricity shows the meter data was actually received.
+    gas = [r for r in db.energy_since("gas", since) if r[0] < end and r[0] in have]
+    out = {"days": days, "tariff": t, "has_elec": bool(elec), "has_gas": bool(gas),
+           "window_end": end, "first": all_elec[0][0] if all_elec else None}
     if elec:
         covered = (elec[-1][0] - elec[0][0]) / 86400 + 1 / 48
         night = sum(v for ts, v in elec if _in_window(ts, t["night_start"], t["night_end"]))
@@ -239,5 +251,12 @@ def analysis(days: int = 30) -> dict:
             d = datetime.fromtimestamp(ts).date().isoformat()
             daily.setdefault(d, {"date": d, "electricity": 0.0, "gas": 0.0})[fuel] += v
     out["daily"] = [{k: (round(v, 2) if isinstance(v, float) else v) for k, v in d.items()} for d in sorted(daily.values(), key=lambda x: x["date"])]
-    out["latest"] = max((rows[-1][0] for rows in (elec, gas) if rows), default=None)
+    out["latest"] = latest
+    # Where are the holes? List missing days in the window so the dashboard can say so.
+    real_days = {datetime.fromtimestamp(ts).date() for ts in have}
+    first_day = datetime.fromtimestamp(max(since, all_elec[0][0] if all_elec else since)).date()
+    last_day = datetime.fromtimestamp(time.time()).date()
+    missing = [(first_day + timedelta(days=i)).isoformat() for i in range((last_day - first_day).days + 1)
+               if first_day + timedelta(days=i) not in real_days]
+    out["missing_days"] = len(missing)
     return out
