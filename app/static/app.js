@@ -33,11 +33,11 @@ function showTab(tab) {
 document.querySelectorAll('nav button').forEach((b) => b.onclick = () => showTab(b.dataset.tab));
 function onTab(tab) {
   const b = {dataset: {tab}};
-  if (tab === 'summary') loadSummary();
+  if (tab === 'summary') { loadSummary(); loadReport(); }
   if (b.dataset.tab === 'history') { loadRoutine(); loadHistory(24); loadEvents(); }
   if (b.dataset.tab === 'energy') loadEnergy(30);
   if (tab === 'devices') loadAppliances(false);
-  if (b.dataset.tab === 'setup') { loadSetup(); loadVersion(); loadTariffForm(); loadRouter(); }
+  if (b.dataset.tab === 'setup') { loadSetup(); loadVersion(); loadTariffForm(); loadRouter(); loadPush(); }
 }
 
 // ---------- home ----------
@@ -384,7 +384,7 @@ async function loadRouter() {
     : r.last_report ? `⚠️ No report from the router for ${ago(r.last_report).replace(' ago', '')} – check the scheduled task.` : 'Not set up yet.';
   $('router-setup').style.display = r.active ? 'none' : 'block';
   if (!r.devices.length) { $('router-devices').innerHTML = ''; return; }
-  const opts = [['', '—'], ...r.people.map((p) => ['person:' + p, p + "'s phone"]), ['streamer', 'Fire Stick / TV streamer'], ['ignore', 'Ignore']];
+  const opts = [['', '—'], ...r.people.map((p) => ['person:' + p, p + "'s phone"]), ['streamer', 'Fire Stick / TV streamer'], ['kids', "Kids' tablet / console"], ['ignore', 'Ignore']];
   $('router-devices').innerHTML = `<p class="muted" style="margin-bottom:4px">Devices on your Wi-Fi – phones and Fire Sticks are recognised by name; fix any that are wrong:</p>` +
     r.devices.slice(0, 40).map((d) => `<div class="device row" style="gap:8px">
       <div style="min-width:0"><b>${esc(d.name || 'Unnamed device')}</b><div class="muted" style="font-size:12px">${esc(d.mac)} · ${d.seen_ago < 120 ? 'online' : 'seen ' + ago(Date.now() / 1000 - d.seen_ago)}${d.kbps > 50 ? ' · ' + d.kbps + ' kbit/s' : ''}</div></div>
@@ -392,6 +392,56 @@ async function loadRouter() {
         ${opts.map(([v, l]) => `<option value="${v}" ${d.role === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`).join('');
 }
 async function setRouterRole(mac, role) { await api('/api/router/role', {mac, role}); toast('Saved'); }
+
+// ---------- notifications ----------
+function b64ToBytes(b64) {
+  const pad = '='.repeat((4 - b64.length % 4) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+async function loadPush() {
+  const info = await api('/api/push');
+  const standalone = window.navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+  const supported = 'serviceWorker' in navigator && 'PushManager' in window;
+  let subscribed = false;
+  if (supported) {
+    const reg = await navigator.serviceWorker.ready;
+    subscribed = !!(await reg.pushManager.getSubscription());
+  }
+  $('push-status').innerHTML = !supported || !standalone
+    ? 'On iPhone, notifications only work from the home-screen app: in Safari tap Share → <b>Add to Home Screen</b>, open it from the new icon, then come back here.'
+    : subscribed ? `✅ Notifications are on for this phone (${info.devices} phone${info.devices === 1 ? '' : 's'} in total).` : 'Tap below and allow notifications.';
+  $('push-btn').style.display = supported && standalone && !subscribed ? 'inline-block' : 'none';
+  $('push-settings').innerHTML = Object.entries(info.types).map(([k, label]) =>
+    `<label class="row" style="padding:6px 0"><span>${esc(label)}</span><input type="checkbox" style="width:auto" ${info.settings[k] ? 'checked' : ''} onchange="api('/api/push/settings',{kind:'${k}',on:this.checked})"></label>`).join('') +
+    (subscribed ? `<button class="small" onclick="api('/api/push/test',{}).then(()=>toast('Test sent'))">Send a test</button>` : '');
+}
+async function enablePush() {
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { toast('Notifications were not allowed'); return; }
+    const info = await api('/api/push');
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64ToBytes(info.public_key)});
+    await api('/api/push/subscribe', sub.toJSON());
+    toast('Notifications on'); loadPush();
+  } catch (e) { toast('Could not turn on notifications: ' + e.message); }
+}
+
+// ---------- monthly report ----------
+async function loadReport() {
+  const r = await api('/api/report');
+  const row = (label, a, b, fmt) => `<div class="row" style="padding:4px 0"><span class="muted">${label}</span><span>${fmt(a)} <span class="muted" style="font-size:12px">(last month ${fmt(b)})</span></span></div>`;
+  const gbp2 = (v) => v ? '£' + v.toFixed(2) : '–';
+  const kwh = (v) => v ? v.toFixed(0) + ' kWh' : '–';
+  const hrs = (v) => v ? v.toFixed(0) + ' h' : '–';
+  const t = r.this, l = r.last;
+  $('report').innerHTML = `<div style="margin-bottom:6px"><b>${esc(t.label)}</b> <span class="muted" style="font-size:12px">· ${t.days_of_meter_data} days of meter data</span></div>` +
+    row('Electricity', t.electricity_cost, l.electricity_cost, gbp2) + row('', t.electricity_kwh, l.electricity_kwh, kwh) +
+    row('Gas', t.gas_cost, l.gas_cost, gbp2) + row('', t.gas_kwh, l.gas_kwh, kwh) +
+    row('Boiler ran', t.boiler_hours, l.boiler_hours, hrs) + row('…with nobody home', t.heating_empty_hours, l.heating_empty_hours, hrs) +
+    '<p class="muted" style="font-size:12px;margin-top:6px">Costs include standing charges, at your current prices. A full report is sent on the 1st of each month if notifications are on.</p>';
+}
 
 async function stStart() {
   $('st-msg').textContent = '';

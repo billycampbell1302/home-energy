@@ -203,6 +203,13 @@ def auto_update_tariff(client=None) -> dict | None:
         db.set_state("tariff_history", history[-50:])
         if changed and len(history) > 1:
             db.add_event("tariff", {k: f"{a}p → {b}p" for k, (a, b) in changed.items()})
+            try:
+                from . import notify
+                names = {"day_rate": "day", "night_rate": "night", "e7_standing": "standing", "gas_rate": "gas", "gas_standing": "gas standing"}
+                notify.send("tariff_change", "Your energy prices changed",
+                            ", ".join(f"{names.get(k, k)} {a}p → {b}p" for k, (a, b) in changed.items()))
+            except Exception:
+                pass
     db.set_state("tariff_checked", today)
     return changed
 

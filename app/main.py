@@ -129,6 +129,11 @@ async def poll_loop():
             await asyncio.to_thread(backfill_step)   # imports Hive's past history a few months at a time
         except Exception as e:
             log.warning("history import: %s", e)
+        try:
+            from . import alerts
+            await asyncio.to_thread(alerts.check, dict(_errors))
+        except Exception as e:
+            log.warning("alerts: %s", e)
         await asyncio.sleep(POLL_MINUTES * 60)
 
 
@@ -493,7 +498,7 @@ class RouterRole(BaseModel):
 @app.post("/api/router/role")
 def router_role(r: RouterRole):
     from . import router
-    if r.role not in ("", "streamer", "ignore") and not (r.role.startswith("person:") and r.role[7:] in PEOPLE):
+    if r.role not in ("", "streamer", "kids", "ignore") and not (r.role.startswith("person:") and r.role[7:] in PEOPLE):
         raise HTTPException(400, "Unknown role")
     router.set_role(r.mac, r.role)
     return router_status()
@@ -634,6 +639,49 @@ def smartthings_callback(code: str = "", state: str = "", error: str = ""):
         log.warning("SmartThings callback: %s", e)
         return RedirectResponse("/?smartthings=failed")
     return RedirectResponse("/?smartthings=ok")
+
+
+# ---------------- notifications & report ----------------
+@app.get("/api/push")
+def push_info():
+    from . import notify
+    return {"public_key": notify.public_key(), "settings": notify.settings(), "types": notify.TYPES,
+            "devices": len(db.get_state("push_subs", []))}
+
+
+@app.post("/api/push/subscribe")
+async def push_subscribe(request: Request):
+    from . import notify
+    notify.subscribe(json.loads(await request.body()))
+    return {"ok": True}
+
+
+class NotifySetting(BaseModel):
+    kind: str
+    on: bool
+
+
+@app.post("/api/push/settings")
+def push_settings(n: NotifySetting):
+    from . import notify
+    st = db.get_state("notify_settings", {})
+    if n.kind in notify.TYPES:
+        st[n.kind] = n.on
+        db.set_state("notify_settings", st)
+    return notify.settings()
+
+
+@app.post("/api/push/test")
+def push_test():
+    from . import notify
+    notify.send("service_down", "Home Energy", "Notifications are working 👍")
+    return {"ok": True}
+
+
+@app.get("/api/report")
+def monthly_report():
+    from . import report
+    return report.current_and_previous()
 
 
 # ---------------- app updates ----------------

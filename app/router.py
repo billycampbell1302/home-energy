@@ -16,6 +16,8 @@ from .config import PEOPLE
 AWAY_GRACE = 10 * 60          # phone must be gone this long before the person counts as out
 STREAM_BPS = 250_000          # ~2 Mbit/s sustained = video streaming (idle Fire Stick is a few KB/s)
 STREAM_HOLD = 3 * 60          # keep "streaming" for a few minutes over short pauses/buffering
+KIDS_BPS = 25_000             # ~200 kbit/s: a tablet/console actually being used (videos, online games)
+KIDS_HOLD = 5 * 60
 
 
 def _auto_role(name: str, mac: str) -> str:
@@ -46,6 +48,8 @@ def report(clients: list) -> dict:
             d["bps"] = 0      # first sight or counters reset (device reconnected)
         if d["bps"] >= STREAM_BPS:
             d["streaming_until"] = now + STREAM_HOLD
+        if d["bps"] >= KIDS_BPS:
+            d["active_until"] = now + KIDS_HOLD
         d.update(bytes=total, last_seen=now, name=c.get("name") or d.get("name") or "", ip=c.get("ip") or d.get("ip"))
         if mac not in roles:
             auto = _auto_role(d["name"], mac)
@@ -80,6 +84,15 @@ def streaming() -> list:
     devs, roles = db.get_state("router_devices", {}), db.get_state("router_roles", {})
     return [devs[m].get("name") or "Fire Stick" for m, r in roles.items()
             if r == "streamer" and m in devs and devs[m].get("streaming_until", 0) > now
+            and now - devs[m].get("last_seen", 0) < 5 * 60]
+
+
+def kids_devices_in_use() -> list:
+    """Kids' tablets/consoles being used right now (enough data flowing to mean someone's on it)."""
+    now = time.time()
+    devs, roles = db.get_state("router_devices", {}), db.get_state("router_roles", {})
+    return [devs[m].get("name") or "Kids' device" for m, r in roles.items()
+            if r == "kids" and m in devs and devs[m].get("active_until", 0) > now
             and now - devs[m].get("last_seen", 0) < 5 * 60]
 
 

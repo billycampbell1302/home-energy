@@ -59,7 +59,6 @@
           <button class="small" onclick="setMode('SCHEDULE')">Schedule</button>
           <button class="small" onclick="setMode('MANUAL')">Manual</button>
           <button class="small" onclick="setMode('OFF')">Off</button>
-          <button class="small" onclick="api('/api/hotwater/boost',{minutes:30}).then(()=>toast('Hot water boosted 30 min'))">Hot water +30</button>
         </div>
       </div>
     </div>
@@ -73,6 +72,10 @@
 
   <!-- SUMMARY -->
   <section class="tab" id="tab-summary">
+    <div class="card">
+      <h2>This month</h2>
+      <div id="report" class="muted">Loading…</div>
+    </div>
     <div class="card">
       <h2>What it's found</h2>
       <div id="summary" class="muted">Loading…</div>
@@ -257,6 +260,13 @@
         <button class="primary" onclick="clLogin()">Connect</button>
         <p id="cl-msg" class="err"></p>
       </div>
+    </div>
+
+    <div class="card">
+      <h2>Notifications</h2>
+      <p class="muted" id="push-status"></p>
+      <button class="primary" id="push-btn" onclick="enablePush()">Turn on notifications</button>
+      <div id="push-settings" style="margin-top:10px"></div>
     </div>
 
     <div class="card">

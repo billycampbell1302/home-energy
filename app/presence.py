@@ -55,6 +55,9 @@ def lights_signal(devices: list, presence: dict) -> dict:
     streams = router.streaming()
     if streams:
         return {"someone_in": True, "why": f"{streams[0]} is streaming", "ignored": []}
+    kids = router.kids_devices_in_use()
+    if kids:
+        return {"someone_in": True, "why": f"{kids[0]} is being used", "ignored": []}
     if used:
         return {"someone_in": True, "why": f"{used[0]['name']} was used since you left", "ignored": []}
     if red:

@@ -6,3 +6,4 @@ requests>=2.31
 qrcode>=7.4
 cryptography>=41
 connectlife>=0.15
+pywebpush>=2.0
