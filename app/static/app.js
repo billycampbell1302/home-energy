@@ -336,8 +336,11 @@ async function loadEnergy(days) {
     (c.likely_end ? `<div>Likely ends <b>${new Date(c.likely_end).toLocaleDateString('en-GB', {month: 'long', year: 'numeric'})}</b>
       <span class="muted">${c.end_confirmed || cf.end ? '' : "(12-month fix – confirmed automatically the day British Gas changes your prices; you'll get a reminder ~7 weeks before)"}</span></div>
       <div class="wrap" style="margin-top:6px">${cf.end ? done() : yes('end', '', '✅ End date is right') +
-        `<label class="small" style="display:inline-flex;align-items:center;gap:6px;background:#2b303b;border-radius:10px;padding:4px 10px;font-size:14px">Different:
-         <input type="date" style="width:auto;margin:0;padding:4px" onchange="confirmContract('end', this.value)"></label>`}</div>` : '') +
+        `<button class="small" onclick="$('end-pick').style.display='flex'">Different date</button>`}</div>
+      <div id="end-pick" class="wrap" style="display:none;margin-top:6px;align-items:center">
+        <input type="date" id="end-date" style="width:auto;margin:0" value="${c.likely_end}">
+        <button class="small primary" onclick="saveEndDate()">Save date</button>
+        <button class="small" onclick="$('end-pick').style.display='none'">Cancel</button></div>` : '') +
     (cf.prices || cf.type || cf.end ? `<div style="margin-top:8px"><button class="small" onclick="confirmContract('reset')">Undo confirmations</button></div>` : '') +
     ((e.tariff_history || []).length > 1 ? `<div class="muted" style="margin-top:8px">Price changes: ` +
       e.tariff_history.map((h) => `${new Date(h.date).toLocaleDateString('en-GB')}: day ${h.day_rate ?? '–'}p / night ${h.night_rate ?? '–'}p`).join(' · ') + '</div>' : '');
@@ -405,6 +408,13 @@ async function loadRouter() {
         ${opts.map(([v, l]) => `<option value="${v}" ${d.role === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`).join('');
 }
 async function setRouterRole(mac, role) { await api('/api/router/role', {mac, role}); toast('Saved'); }
+
+async function saveEndDate() {
+  const v = $('end-date').value;
+  if (!v) { toast('Pick a date first'); return; }
+  if (new Date(v) < new Date(new Date().toDateString())) { toast('That date is in the past – pick when your fix ends'); return; }
+  await confirmContract('end', v);
+}
 
 async function confirmContract(what, value) {
   await api('/api/contract/confirm', {what, value: value || ''});
