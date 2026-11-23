@@ -214,6 +214,20 @@ def auto_update_tariff(client=None) -> dict | None:
     return changed
 
 
+# Ofgem price cap, Direct Debit, Great Britain average (gas incl. 5% VAT). Updated each quarter.
+PRICE_CAPS = [
+    {"from": "2026-10-01", "to": "2026-12-31", "period": "Oct–Dec 2026", "gas_rate": 7.97, "gas_standing": 29.68},
+]
+
+
+def current_cap():
+    today = datetime.now().date().isoformat()
+    for c in PRICE_CAPS:
+        if c["from"] <= today <= c["to"]:
+            return {**c, "regional_margin": 0.6}   # regions differ from the GB average by a fraction of a penny
+    return None
+
+
 def contract_guess() -> dict:
     """Fixed or variable? Variable tariffs move with the price cap on 1 Jan/Apr/Jul/Oct; fixed ones don't.
 
@@ -223,6 +237,14 @@ def contract_guess() -> dict:
     history = db.get_state("tariff_history", [])
     if len(history) == 0:
         return {"type": "unknown", "why": "Waiting for the first price reading from your meter."}
+    # Quick answer: a variable (price-capped) tariff can never charge MORE than the cap. If your gas unit rate is
+    # above the cap, you must be on a fixed deal. (Electricity isn't used here - the cap figures we have are for
+    # single-rate meters, and Economy 7 prices are split differently.)
+    cap = current_cap()
+    gas = tariff_settings().get("gas_rate")
+    if cap and gas and gas > cap["gas_rate"] + cap["regional_margin"]:
+        return {"type": "fixed", "why": f"Your gas price ({gas}p) is above the price cap (about {cap['gas_rate']}p for "
+                                        f"{cap['period']}) – a variable tariff can't charge more than the cap, so this is a fixed deal."}
     first = history[0]["date"]
     today = datetime.now().date().isoformat()
     for cap_day in CAP_CHANGE_DATES:
