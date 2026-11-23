@@ -15,7 +15,10 @@
 <body>
 <header>
   <h1 id="title">Home</h1>
-  <small id="updated"></small>
+  <div style="display:flex;gap:12px;align-items:center">
+    <small id="updated"></small>
+    <button class="small" id="gear" onclick="showTab('setup')" aria-label="Setup" style="font-size:18px;padding:6px 10px">⚙️</button>
+  </div>
 </header>
 
 <main>
@@ -23,10 +26,6 @@
   <section class="tab active" id="tab-home">
     <div id="errors"></div>
 
-    <div class="card" id="summary-card" style="display:none">
-      <h2>Summary</h2>
-      <div id="summary"></div>
-    </div>
 
     <div class="card" id="heat-card">
       <h2>Heating</h2>
@@ -68,23 +67,29 @@
     <div class="card">
       <h2>Who's home</h2>
       <div id="people" class="wrap"></div>
-      <div class="row" style="margin-top:12px">
-        <div>
-          <div>Kids / guests home</div>
-          <div class="muted">Stops the heating treating the flat as empty</div>
-        </div>
-        <button id="hold" onclick="toggleHold()">Off</button>
-      </div>
+      <div class="muted" id="lights-signal" style="margin-top:10px"></div>
     </div>
+  </section>
 
-    <div class="card" id="kids-card" style="display:none">
-      <h2>Kids' lights</h2>
-      <div id="kids-lights"></div>
+  <!-- SUMMARY -->
+  <section class="tab" id="tab-summary">
+    <div class="card">
+      <h2>What it's found</h2>
+      <div id="summary" class="muted">Loading…</div>
     </div>
   </section>
 
   <!-- DEVICES -->
   <section class="tab" id="tab-devices">
+    <div class="card">
+      <div class="row">
+        <div>
+          <div>Guests staying / someone in without a phone</div>
+          <div class="muted">Only needed if nobody's phone is home and no lights are on. Turns itself off when someone arrives.</div>
+        </div>
+        <button id="hold" onclick="toggleHold()">Off</button>
+      </div>
+    </div>
     <div class="card">
       <h2>Smart Life devices</h2>
       <div id="devices" class="muted">Smart Life isn't connected yet – go to Setup.</div>
@@ -191,7 +196,7 @@
     </div>
 
     <div class="card">
-      <h2>2 · Smart Life (kids' lights)</h2>
+      <h2>2 · Smart Life (lights)</h2>
       <div id="tuya-done" class="ok" style="display:none">✓ Connected</div>
       <div id="tuya-form">
         <p class="muted">Smart Life app → Me → ⚙ → Account and Security → User Code.</p>
@@ -250,10 +255,10 @@
 
 <nav>
   <button class="active" data-tab="home"><span>🏠</span>Home</button>
-  <button data-tab="devices"><span>💡</span>Devices</button>
+  <button data-tab="summary"><span>📋</span>Summary</button>
   <button data-tab="energy"><span>⚡</span>Energy</button>
   <button data-tab="history"><span>📈</span>History</button>
-  <button data-tab="setup"><span>⚙️</span>Setup</button>
+  <button data-tab="devices"><span>💡</span>Devices</button>
 </nav>
 <div class="toast" id="toast"></div>
 

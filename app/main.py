@@ -53,7 +53,8 @@ def poll_once():
     if tuya.is_configured():
         try:
             devs = tuya.refresh()
-            row["kids_lights_on"] = int(any(d["on"] for d in devs if d["kids"]))
+            # Any light on (that isn't hidden, e.g. at another house) means someone's in - the kids' red night lights included.
+            row["kids_lights_on"] = int(any(d["on"] for d in devs if d["kind"] == "light" and not d["hidden"] and d["online"]))
             _errors.pop("tuya", None)
         except Exception as e:
             _errors["tuya"] = str(e)[:200]
@@ -214,7 +215,7 @@ def status():
 @app.get("/api/insights")
 def insights():
     from . import insights as ins
-    return ins.build(hive.is_configured(), tuya.is_configured())
+    return ins.build(hive.is_configured(), tuya.is_configured(), dict(_errors))
 
 
 @app.get("/api/routine")
@@ -366,6 +367,8 @@ def _set_presence(person: str, state: str):
         p[match] = {"home": home, "since": int(time.time())}
         db.set_state("presence", p)
         db.add_event("presence", {"person": match, "home": home})
+        if home and db.get_state("hold", False):
+            db.set_state("hold", False)   # guests switch is only for when nobody's phone is home
     return p
 
 

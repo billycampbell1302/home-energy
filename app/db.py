@@ -20,8 +20,8 @@ _conn.executescript(
         hot_water_on INTEGER,
         outdoor_temp REAL,
         people_home INTEGER,          -- how many adults' phones are home
-        kids_lights_on INTEGER,       -- any kids' light on
-        hold INTEGER,                 -- guests/kids-home hold switched on
+        kids_lights_on INTEGER,       -- any light on in the flat (someone's in)
+        hold INTEGER,                 -- 'guests staying' switch on
         extra TEXT                    -- JSON for anything else
     );
     CREATE INDEX IF NOT EXISTS readings_ts ON readings(ts);

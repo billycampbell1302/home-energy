@@ -21,17 +21,18 @@ def _readings(days: int):
         return cur.fetchall()
 
 
-def build(hive_ok: bool, tuya_ok: bool) -> list:
+def build(hive_ok: bool, tuya_ok: bool, errors: dict | None = None) -> list:
     items = []
     add = lambda level, title, detail="": items.append({"level": level, "title": title, "detail": detail})
+    names = {"hive": "Hive", "tuya": "Smart Life", "bright": "Bright (smart meter)", "weather": "Weather"}
+    for k, msg in (errors or {}).items():
+        add("todo", f"{names.get(k, k)} isn't responding", f"It'll keep retrying by itself. Last error: {msg[:120]}")
 
     # ---------- setup ----------
     if not hive_ok:
         add("todo", "Connect Hive", "Setup → Hive heating. Nothing can be learned about the heating until it's connected.")
     if not bright.is_configured():
         add("todo", "Connect your smart meter", "Setup → Smart meter (Bright).")
-    if tuya_ok and not db.get_state("kids_lights"):
-        add("todo", "Tick the kids' lights", "Devices tab → tick 'Kids' light' so the app knows the kids are in.")
     with db._lock:
         presence_events = db._conn.execute("SELECT COUNT(*) FROM events WHERE kind='presence'").fetchone()[0]
     if presence_events == 0:

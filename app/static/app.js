@@ -23,20 +23,26 @@ const ago = (ts) => {
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 
 // ---------- tabs ----------
-document.querySelectorAll('nav button').forEach((b) => b.onclick = () => {
-  document.querySelectorAll('nav button').forEach((x) => x.classList.toggle('active', x === b));
-  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
-  $('title').textContent = b.dataset.tab[0].toUpperCase() + b.dataset.tab.slice(1);
+function showTab(tab) {
+  document.querySelectorAll('nav button').forEach((x) => x.classList.toggle('active', x.dataset.tab === tab));
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === 'tab-' + tab));
+  $('title').textContent = tab[0].toUpperCase() + tab.slice(1);
+  window.scrollTo(0, 0);
+  onTab(tab);
+}
+document.querySelectorAll('nav button').forEach((b) => b.onclick = () => showTab(b.dataset.tab));
+function onTab(tab) {
+  const b = {dataset: {tab}};
+  if (tab === 'summary') loadSummary();
   if (b.dataset.tab === 'history') { loadRoutine(); loadHistory(24); loadEvents(); }
   if (b.dataset.tab === 'energy') loadEnergy(30);
   if (b.dataset.tab === 'setup') { loadSetup(); loadVersion(); loadTariffForm(); }
-});
+}
 
 // ---------- home ----------
 async function load() {
   S = await api('/api/status');
   render();
-  loadSummary();
 }
 
 async function loadSummary() {
@@ -50,7 +56,7 @@ async function loadSummary() {
       html += `<div style="padding:6px 0"><div>${icon[i.level]} <b>${esc(i.title)}</b></div>${i.detail ? `<div class="muted">${esc(i.detail)}</div>` : ''}</div>`;
     }
     $('summary').innerHTML = html;
-    $('summary-card').style.display = items.length ? 'block' : 'none';
+    if (!items.length) $('summary').textContent = 'Nothing to report yet.';
   } catch (_) {}
 }
 
@@ -70,17 +76,20 @@ function render() {
   }
   if (S.weather) $('outdoor').textContent = `Outside ${S.weather.temp.toFixed(1)}°`;
 
-  const errs = Object.entries(S.errors || {});
+  // Home only shows problems that affect it right now (heating / lights). Others appear on the Summary tab.
+  const errs = Object.entries(S.errors || {}).filter(([k]) => k === 'hive' || k === 'tuya');
   $('errors').innerHTML = errs.length ? `<div class="card err">${errs.map(([k, v]) => `<b>${esc(k)}</b>: ${esc(v)}`).join('<br>')}</div>` : '';
 
   $('people').innerHTML = Object.entries(S.presence).map(([name, p]) =>
     `<button class="pill ${p.home ? 'home' : 'away'}" onclick="togglePerson('${esc(name)}', ${!p.home})">${esc(name)} · ${p.home ? 'home' : 'out'} <span class="muted">${ago(p.since)}</span></button>`).join('');
   $('hold').textContent = S.hold ? 'On' : 'Off';
   $('hold').className = S.hold ? 'primary' : '';
+  if (S.hold) $('people').innerHTML += '<span class="pill home">Guests staying</span>';
 
-  const kids = S.devices.filter((d) => d.kids && !d.hidden);
-  $('kids-card').style.display = kids.length ? 'block' : 'none';
-  $('kids-lights').innerHTML = kids.map(deviceRow).join('');
+  const lightsOn = S.devices.filter((d) => d.kind === 'light' && !d.hidden && d.on);
+  $('lights-signal').innerHTML = !S.tuya_configured ? ''
+    : lightsOn.length ? `💡 ${lightsOn.map((d) => esc(d.name)).join(', ')} on – counts as someone home`
+    : 'No lights on';
   $('devices').innerHTML = S.tuya_configured ? devicesHtml() : "Smart Life isn't connected yet – go to Setup.";
 }
 
@@ -117,9 +126,7 @@ function deviceRow(d, full) {
     : `<button class="small" onclick="dev('${d.id}','on')">On</button>
        <button class="small" onclick="dev('${d.id}','off')">Off</button>`;
   const kidsToggle = full
-    ? `<div class="row" style="margin-top:6px">` +
-      (d.kind === 'light' ? `<label class="muted"><input type="checkbox" style="width:auto;margin:0 6px 0 0" ${d.kids ? 'checked' : ''} onchange="markKids('${d.id}', this.checked)">Kids' light</label>` : '<span></span>') +
-      `<button class="small" onclick="hideDev('${d.id}', true)">Hide</button></div>` : '';
+    ? `<div class="row" style="margin-top:6px"><span></span><button class="small" onclick="hideDev('${d.id}', true)">Hide</button></div>` : '';
   const state = !d.online ? 'offline' : d.on ? (d.mode === 'colour' ? 'on · colour' : 'on') : 'off';
   return `<div class="device"><div class="row"><b>${esc(d.name)}</b><span class="pill ${d.on ? 'on' : ''}">${state}${d.power_w != null ? ' · ' + d.power_w + ' W' : ''}</span></div>
     <div class="wrap" style="margin-top:8px">${btns}</div>${kidsToggle}</div>`;
@@ -199,7 +206,7 @@ async function loadRoutine() {
     lines.map((l) => `<div class="muted">${esc(l)}</div>`).join('') + heatmap(grid, r.days, color);
   $('routine').innerHTML =
     r.people.map((p) => block(`${p.name} – at home`, p.summary, p.grid, 'rgba(62,207,142,A)')).join('') +
-    block('Flat empty (nobody in, no kids/guests)', r.empty.summary, r.empty.grid, 'rgba(77,163,255,A)') +
+    block('Flat empty (no phones home, no lights on)', r.empty.summary, r.empty.grid, 'rgba(77,163,255,A)') +
     block('Heating on (boiler firing)', r.heating.summary, r.heating.grid, 'rgba(255,138,61,A)');
 }
 
