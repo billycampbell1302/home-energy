@@ -8,8 +8,33 @@ import json
 import threading
 import time
 
+import re
+
 import requests
 from pyhiveapi import Auth
+from pyhiveapi.api import hive_api as _hive_api
+
+# Hive's login needs two IDs that pyhiveapi scrapes from Hive's sign-in page. That scrape breaks
+# whenever Hive changes the page, so: search the page more loosely, and fall back to known values.
+_FALLBACK_POOL_ID = "eu-west-1_SamNfoWtf"
+_FALLBACK_CLIENT_ID = "3rl4i0ajrmtdm8sbre54p9dvd9"
+
+
+def _login_info(self=None):
+    pool, client = None, None
+    try:
+        html = requests.get("https://sso.hivehome.com/", timeout=15,
+                            headers={"User-Agent": "Mozilla/5.0"}).text
+        m1 = re.search(r"HiveSSOPoolId[\"']?\s*[=:]\s*[\"']([\w-]+_[\w]+)", html)
+        m2 = re.search(r"HiveSSOPublicCognitoClientId[\"']?\s*[=:]\s*[\"']([\w]+)", html)
+        pool, client = (m1.group(1) if m1 else None), (m2.group(1) if m2 else None)
+    except Exception:
+        pass
+    pool, client = pool or _FALLBACK_POOL_ID, client or _FALLBACK_CLIENT_ID
+    return {"UPID": pool, "CLIID": client, "REGION": pool}
+
+
+_hive_api.HiveApi.getLoginInfo = _login_info
 
 from . import db
 from .config import load_secrets, save_secrets

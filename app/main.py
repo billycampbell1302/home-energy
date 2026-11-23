@@ -354,7 +354,11 @@ def setup_hive_login(b: HiveLogin):
     except HiveError as e:
         raise HTTPException(400, str(e))
     except Exception as e:
-        raise HTTPException(400, f"Hive login failed: {type(e).__name__}. Check email and password.")
+        log.exception("Hive login failed")
+        name = type(e).__name__
+        if name in ("HiveInvalidPassword", "HiveInvalidUsername"):
+            raise HTTPException(400, "Hive says the email or password is wrong.")
+        raise HTTPException(400, f"Hive login failed: {name}: {str(e)[:150]}")
 
 
 @app.post("/api/setup/hive/sms")
