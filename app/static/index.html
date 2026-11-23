@@ -114,7 +114,11 @@
   <section class="tab" id="tab-setup">
     <div class="card">
       <h2>1 · Hive heating</h2>
-      <div id="hive-done" class="ok" style="display:none">✓ Connected</div>
+      <div id="hive-done" style="display:none">
+        <div class="ok">✓ Connected</div>
+        <p class="muted" style="margin-bottom:4px">Thermostats on your Hive account – the dashboard uses the ticked one:</p>
+        <div id="hive-zones" class="muted">Loading…</div>
+      </div>
       <div id="hive-form">
         <p class="muted">Use the Hive account owner's login. Two-factor authentication must be turned on in the Hive app.</p>
         <input id="hive-user" type="email" placeholder="Hive email" autocomplete="off">

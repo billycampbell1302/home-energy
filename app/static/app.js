@@ -172,6 +172,8 @@ async function loadEvents() {
 async function loadSetup() {
   const s = await api('/api/setup');
   $('hive-done').style.display = s.hive_configured ? 'block' : 'none';
+  $('hive-form').style.display = s.hive_configured ? 'none' : 'block';
+  if (s.hive_configured) loadZones();
   $('tuya-done').style.display = s.tuya_configured ? 'block' : 'none';
   $('hooks').innerHTML = Object.entries(s.webhooks).map(([p, u]) =>
     `<b>${esc(p)}</b><div class="muted">Arrive</div><div class="url">${esc(u.arrive)}</div><div class="muted">Leave</div><div class="url">${esc(u.leave)}</div>`).join('');
@@ -200,6 +202,14 @@ async function checkUpdates() {
   }
   $('update-msg').textContent = 'No answer yet – try again in a minute.'; btn.disabled = false;
 }
+
+async function loadZones() {
+  const zs = await api('/api/setup/hive/zones');
+  $('hive-zones').innerHTML = zs.length ? zs.map((z) => `<div class="device row">
+      <div><b>${z.chosen ? '✓ ' : ''}${esc(z.name)}</b><div class="muted">${z.indoor_temp ?? '–'}° now · target ${z.target_temp ?? '–'}° · ${esc(z.mode || '')}${z.online ? '' : ' · OFFLINE'}${z.group ? ' · group' : ''}</div></div>
+      ${z.chosen ? '' : `<button class="small" onclick="pickZone('${z.id}')">Use this</button>`}</div>`).join('') : 'No thermostats found.';
+}
+async function pickZone(id) { await api('/api/setup/hive/zone', {id}); await loadZones(); await api('/api/refresh', {}); load(); toast('Thermostat updated'); }
 
 async function hiveLogin() {
   $('hive-msg').textContent = '';

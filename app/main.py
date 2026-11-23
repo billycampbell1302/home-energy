@@ -409,6 +409,27 @@ def setup_info():
     }
 
 
+@app.get("/api/setup/hive/zones")
+def hive_zones():
+    if hive.is_configured():
+        try:
+            hive.refresh()
+        except Exception as e:
+            raise HTTPException(502, f"Hive didn't respond: {e}")
+    return hive.zones()
+
+
+class ZonePick(BaseModel):
+    id: str
+
+
+@app.post("/api/setup/hive/zone")
+def hive_pick_zone(z: ZonePick):
+    db.set_state("hive_heating_id", z.id)
+    db.add_event("setup", f"Hive zone set to {z.id[:8]}")
+    return hive.zones()
+
+
 class HiveLogin(BaseModel):
     username: str
     password: str

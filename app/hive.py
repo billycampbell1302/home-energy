@@ -161,8 +161,31 @@ class HiveClient:
 
     def _product(self, ptype: str):
         matches = [p for p in self.last_nodes if p.get("type") == ptype]
-        singles = [p for p in matches if not p.get("isGroup", False)]
-        return (singles or matches or [None])[0]
+        if ptype == "heating":
+            chosen = db.get_state("hive_heating_id")
+            for p in matches:
+                if p.get("id") == chosen:
+                    return p
+        # Prefer a single (not grouped) product that's online - old/removed thermostats can linger offline.
+        ranked = sorted(matches, key=lambda p: (p.get("isGroup", False), not p.get("props", {}).get("online", True)))
+        return ranked[0] if ranked else None
+
+    def zones(self) -> list:
+        """Every heating zone/thermostat on the account, so the right one can be picked on the Setup page."""
+        chosen = (self._product("heating") or {}).get("id")
+        out = []
+        for p in self.last_nodes:
+            if p.get("type") not in ("heating", "trvcontrol"):
+                continue
+            st, pr = p.get("state", {}), p.get("props", {})
+            out.append({
+                "id": p["id"], "type": p.get("type"),
+                "name": st.get("name") or pr.get("zoneName") or p["id"][:8],
+                "indoor_temp": _num(pr.get("temperature")), "target_temp": _num(st.get("target")),
+                "mode": st.get("mode"), "online": pr.get("online", True),
+                "group": p.get("isGroup", False), "chosen": p["id"] == chosen,
+            })
+        return out
 
     def summary(self) -> dict:
         heat = self._product("heating")
@@ -175,6 +198,7 @@ class HiveClient:
                 mode = "BOOST"
             out.update({
                 "heating_id": heat["id"],
+                "zone_name": st.get("name") or "",
                 "indoor_temp": _num(pr.get("temperature")),
                 "target_temp": _num(st.get("target")),
                 "mode": mode,
