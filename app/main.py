@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from . import db, weather
 from .presence import lights_signal, update_light_activity
-from .bright import BrightError, analysis, auto_update_tariff, bright, contract_guess, tariff_settings
+from .bright import BrightError, analysis, auto_update_tariff, bright, contract_guess, contract_info, tariff_settings
 from .config import ADMIN_PASSWORD, PEOPLE, POLL_MINUTES, PUBLIC_URL, SESSION_SECRET, webhook_token
 from .hive import HiveError, hive
 from .tuya import tuya
@@ -547,7 +547,7 @@ async def energy_sync():
 def energy(days: int = 30):
     a = analysis(max(1, min(days, 400)))
     a["bright_configured"] = bright.is_configured()
-    a["contract"] = contract_guess()
+    a["contract"] = contract_info()
     a["tariff_history"] = db.get_state("tariff_history", [])[-6:]
     a["tariff_checked"] = db.get_state("tariff_checked")
     a["last_sync"] = bright.last_sync
@@ -563,6 +563,35 @@ async def tariff_from_meter():
         return await asyncio.to_thread(bright.meter_tariff)
     except Exception as e:
         raise HTTPException(502, f"Couldn't read the tariff from Bright: {e}")
+
+
+class ContractConfirm(BaseModel):
+    what: str                 # prices | type | end
+    value: str = ""           # for type: fixed/variable; for end: YYYY-MM-DD or "" to confirm the estimate
+
+
+@app.post("/api/contract/confirm")
+def contract_confirm(c: ContractConfirm):
+    conf = db.get_state("contract_confirm", {})
+    today = time.strftime("%Y-%m-%d")
+    if c.what == "prices":
+        conf["prices"] = today
+    elif c.what == "type" and c.value in ("fixed", "variable"):
+        conf["type"] = c.value
+    elif c.what == "end":
+        if c.value:
+            try:
+                time.strptime(c.value, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(400, "Date must be YYYY-MM-DD")
+            conf["end_date"] = c.value
+        conf["end"] = today
+    elif c.what == "reset":
+        conf = {}
+    else:
+        raise HTTPException(400, "Unknown confirmation")
+    db.set_state("contract_confirm", conf)
+    return contract_info()
 
 
 class Tariff(BaseModel):

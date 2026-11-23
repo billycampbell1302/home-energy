@@ -321,11 +321,24 @@ async function loadEnergy(days) {
   }
   drawDaily(e.daily);
   const t = e.tariff, c = e.contract || {};
-  const label = {fixed: '🔒 Looks like a fixed tariff', variable: '📈 Looks like a variable tariff (follows the price cap)', unknown: '❔ Fixed or variable: not known yet'}[c.type] || '';
+  const cf = c.confirmed || {};
+  const label = {fixed: cf.type ? '🔒 Fixed tariff' : '🔒 Looks like a fixed tariff', variable: cf.type ? '📈 Variable tariff' : '📈 Looks like a variable tariff (follows the price cap)', unknown: '❔ Fixed or variable: not known yet'}[c.type] || '';
+  const yes = (what, value, text) => `<button class="small" onclick="confirmContract('${what}','${value || ''}')">${text}</button>`;
+  const done = (when) => `<span class="ok" style="font-size:13px">✓ confirmed by you</span>`;
   $('prices').innerHTML = `Electricity: day <b>${t.day_rate}p</b> · night <b>${t.night_rate}p</b> · standing <b>${t.e7_standing}p/day</b><br>
     Gas: <b>${t.gas_rate}p</b> · standing <b>${t.gas_standing}p/day</b>
+    <div class="wrap" style="margin-top:6px">${cf.prices ? done() : yes('prices', '', '✅ Prices match my bill') + `<button class="small" onclick="showTab('setup')">✏️ Not right</button>`}</div>
     <div class="muted" style="margin-top:6px">${e.tariff_checked ? 'Read from your meter, last checked ' + new Date(e.tariff_checked).toLocaleDateString('en-GB') + '.' : 'Not read from your meter yet.'}</div>
-    <div style="margin-top:10px">${label}</div><div class="muted">${esc(c.why || '')}</div>` +
+    <div style="margin-top:10px">${label}</div><div class="muted">${esc(c.why || '')}</div>
+    <div class="wrap" style="margin-top:6px">${cf.type ? done() : (c.type === 'fixed' ? yes('type', 'fixed', '✅ Yes, it\'s fixed') + yes('type', 'variable', 'No, variable') : c.type === 'variable' ? yes('type', 'variable', '✅ Yes, variable') + yes('type', 'fixed', 'No, fixed') : yes('type', 'fixed', 'It\'s fixed') + yes('type', 'variable', 'It\'s variable'))}</div>` +
+    (c.start ? `<div style="margin-top:8px">Started <b>${new Date(c.start).toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'})}</b>
+      <span class="muted">(${c.start_source === 'meter' ? 'from your meter' : c.start_source === 'price change' ? 'when your prices last changed' : 'when this app first saw these prices'})</span></div>` : '') +
+    (c.likely_end ? `<div>Likely ends <b>${new Date(c.likely_end).toLocaleDateString('en-GB', {month: 'long', year: 'numeric'})}</b>
+      <span class="muted">${c.end_confirmed || cf.end ? '' : "(12-month fix – confirmed automatically the day British Gas changes your prices; you'll get a reminder ~7 weeks before)"}</span></div>
+      <div class="wrap" style="margin-top:6px">${cf.end ? done() : yes('end', '', '✅ End date is right') +
+        `<label class="small" style="display:inline-flex;align-items:center;gap:6px;background:#2b303b;border-radius:10px;padding:4px 10px;font-size:14px">Different:
+         <input type="date" style="width:auto;margin:0;padding:4px" onchange="confirmContract('end', this.value)"></label>`}</div>` : '') +
+    (cf.prices || cf.type || cf.end ? `<div style="margin-top:8px"><button class="small" onclick="confirmContract('reset')">Undo confirmations</button></div>` : '') +
     ((e.tariff_history || []).length > 1 ? `<div class="muted" style="margin-top:8px">Price changes: ` +
       e.tariff_history.map((h) => `${new Date(h.date).toLocaleDateString('en-GB')}: day ${h.day_rate ?? '–'}p / night ${h.night_rate ?? '–'}p`).join(' · ') + '</div>' : '');
 }
@@ -392,6 +405,11 @@ async function loadRouter() {
         ${opts.map(([v, l]) => `<option value="${v}" ${d.role === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`).join('');
 }
 async function setRouterRole(mac, role) { await api('/api/router/role', {mac, role}); toast('Saved'); }
+
+async function confirmContract(what, value) {
+  await api('/api/contract/confirm', {what, value: value || ''});
+  toast('Thanks – saved'); loadEnergy();
+}
 
 // ---------- notifications ----------
 function b64ToBytes(b64) {

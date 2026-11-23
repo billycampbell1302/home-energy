@@ -110,7 +110,23 @@ def check(errors: dict):
                 notify.send("high_use", "Electricity use was high", f"{last:.1f} kWh on {last_day} – about {last / avg:.1f}× your usual {avg:.1f} kWh.")
         db.set_state(f"highuse_{d.date()}", True)
 
-    # 8. Daily report at 8am
+    # 8. Fixed deal: early warning ~7 weeks before the likely end (when the renewal letter is due)
+    try:
+        from .bright import contract_info
+        c = contract_info()
+        if c.get("likely_end") and c["type"] != "variable":
+            end = datetime.fromisoformat(c["likely_end"])
+            days = (end - d).days
+            key = f"contract_warn_{c['likely_end']}"
+            if 0 < days <= 49 and not db.get_state(key):
+                notify.send("contract", "Your fixed deal is likely ending soon",
+                            f"It started {c['start']}, so a 12-month fix ends around {end:%d %b %Y}. British Gas should send your "
+                            "renewal letter about now – a good time to compare deals.")
+                db.set_state(key, True)
+    except Exception:
+        pass
+
+    # 8b. Daily report at 8am
     if d.hour >= 8 and not db.get_state(f"daily_{d.date()}"):
         from . import report
         title, body = report.daily_text()

@@ -23,6 +23,7 @@ TYPES = {
     "washing_done": "Washing finished",
     "high_use": "Unusually high electricity use",
     "tariff_change": "Energy prices changed",
+    "contract": "Fixed deal ending / ended",
     "service_down": "Something stopped working",
     "arrivals": "Arrivals and departures",
     "daily": "Daily report (8am)",

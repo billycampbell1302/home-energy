@@ -189,29 +189,98 @@ def auto_update_tariff(client=None) -> dict | None:
     typing anything. Keeps a dated history, which is also how we tell a fixed tariff from a variable one.
     """
     client = client or bright
-    found = client.meter_tariff()["values"]
-    found = {k: v for k, v in found.items() if k in AUTO_KEYS}
+    mt = client.meter_tariff()
+    found = {k: v for k, v in mt["values"].items() if k in AUTO_KEYS}
     if not found:
         return None
+    meter_start = _tariff_start_from_meter(mt.get("raw", {}))
+    if meter_start and not db.get_state("tariff_start"):
+        db.set_state("tariff_start", {"date": meter_start, "source": "meter"})
     current = tariff_settings()
     changed = {k: (current.get(k), v) for k, v in found.items() if abs((current.get(k) or 0) - v) > 0.005}
+    was = contract_info()                   # what we believed before any change (fixed/variable)
     history = db.get_state("tariff_history", [])
     today = datetime.now().date().isoformat()
     if changed or not history:
         db.set_state("tariff", {**current, **found})
         history.append({"date": today, **found})
         db.set_state("tariff_history", history[-50:])
+        if not history[:-1] and not db.get_state("tariff_start"):
+            db.set_state("tariff_start", {"date": today, "source": "first seen"})
         if changed and len(history) > 1:
             db.add_event("tariff", {k: f"{a}p → {b}p" for k, (a, b) in changed.items()})
+            db.set_state("tariff_start", {"date": today, "source": "price change"})
+            db.set_state("contract_confirm", {})
             try:
                 from . import notify
                 names = {"day_rate": "day", "night_rate": "night", "e7_standing": "standing", "gas_rate": "gas", "gas_standing": "gas standing"}
-                notify.send("tariff_change", "Your energy prices changed",
-                            ", ".join(f"{names.get(k, k)} {a}p → {b}p" for k, (a, b) in changed.items()))
+                detail = ", ".join(f"{names.get(k, k)} {a}p → {b}p" for k, (a, b) in changed.items())
+                if was.get("type") == "fixed":
+                    notify.send("contract", "Your fixed deal has ended",
+                                f"British Gas changed your prices: {detail}. Worth comparing deals now – you may be on a variable tariff.")
+                else:
+                    notify.send("tariff_change", "Your energy prices changed", detail)
             except Exception:
                 pass
     db.set_state("tariff_checked", today)
     return changed
+
+
+def _tariff_start_from_meter(raw) -> str | None:
+    """Bright's tariff data carries the date the current prices were put on the meter. Field names aren't
+    documented, so look for any date under a from/start/effective key and take the latest one not in the future."""
+    found = []
+
+    def walk(node, key=""):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                walk(v, k.lower())
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, key)
+        elif any(w in key for w in ("from", "start", "effective", "activat")):
+            d = None
+            if isinstance(node, (int, float)) and node > 10**9:
+                d = datetime.fromtimestamp(node / 1000 if node > 10**11 else node).date()
+            elif isinstance(node, str) and len(node) >= 10 and node[4] == "-":
+                try:
+                    d = datetime.fromisoformat(node[:10]).date()
+                except ValueError:
+                    pass
+            if d:
+                found.append(d)
+
+    walk(raw)
+    today = datetime.now().date()
+    past = [d for d in found if d <= today and d.year >= 2015]
+    return max(past).isoformat() if past else None
+
+
+FIX_MONTHS = 12   # British Gas's standard fixed deals run 12 months
+
+
+def contract_info() -> dict:
+    """Everything known about the current deal: real start date, fixed/variable, likely end (until confirmed)."""
+    g = contract_guess()
+    conf = db.get_state("contract_confirm", {})
+    if conf.get("type") in ("fixed", "variable"):
+        g = {"type": conf["type"], "why": "Confirmed by you."}
+    st = db.get_state("tariff_start")
+    out = {"type": g["type"], "why": g["why"], "start": st["date"] if st else None,
+           "start_source": st["source"] if st else None, "likely_end": None}
+    out["confirmed"] = {k: conf.get(k) for k in ("prices", "type", "end")}
+    if conf.get("end_date"):
+        out["likely_end"] = conf["end_date"]
+        out["end_confirmed"] = True
+        return out
+    if st and g["type"] != "variable":
+        d = datetime.fromisoformat(st["date"]).date()
+        y, m = d.year + (d.month + FIX_MONTHS - 1) // 12, (d.month + FIX_MONTHS - 1) % 12 + 1
+        try:
+            out["likely_end"] = d.replace(year=y, month=m).isoformat()
+        except ValueError:              # 29-31st in a shorter month
+            out["likely_end"] = d.replace(year=y, month=m, day=28).isoformat()
+    return out
 
 
 # Ofgem price cap, Direct Debit, Great Britain average (gas incl. 5% VAT). Updated each quarter.
