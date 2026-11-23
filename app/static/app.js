@@ -86,10 +86,12 @@ function render() {
   $('hold').className = S.hold ? 'primary' : '';
   if (S.hold) $('people').innerHTML += '<span class="pill home">Guests staying</span>';
 
-  const lightsOn = S.devices.filter((d) => d.kind === 'light' && !d.hidden && d.on);
-  $('lights-signal').innerHTML = !S.tuya_configured ? ''
-    : lightsOn.length ? `💡 ${lightsOn.map((d) => esc(d.name)).join(', ')} on – counts as someone home`
-    : 'No lights on';
+  const ls = S.lights_signal || {};
+  const anyPhone = Object.values(S.presence).some((p) => p.home);
+  $('lights-signal').innerHTML = !S.tuya_configured || anyPhone ? ''
+    : ls.someone_in ? `💡 Someone's in – ${esc(ls.why)}`
+    : ls.ignored && ls.ignored.length ? `Flat empty · ${esc(ls.ignored.join(', '))} left on (ignored – not touched since you left)`
+    : 'Flat empty';
   $('devices').innerHTML = S.tuya_configured ? devicesHtml() : "Smart Life isn't connected yet – go to Setup.";
 }
 

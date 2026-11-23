@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import db, weather
+from .presence import lights_signal, update_light_activity
 from .bright import BrightError, analysis, auto_update_tariff, bright, contract_guess, tariff_settings
 from .config import ADMIN_PASSWORD, PEOPLE, POLL_MINUTES, PUBLIC_URL, SESSION_SECRET, webhook_token
 from .hive import HiveError, hive
@@ -53,8 +54,10 @@ def poll_once():
     if tuya.is_configured():
         try:
             devs = tuya.refresh()
-            # Any light on (that isn't hidden, e.g. at another house) means someone's in - the kids' red night lights included.
-            row["kids_lights_on"] = int(any(d["on"] for d in devs if d["kind"] == "light" and not d["hidden"] and d["online"]))
+            # Lights only count as someone in if they've been used since the last phone left, or are on
+            # night red at night - lights simply left on are ignored (see presence.py).
+            update_light_activity(devs)
+            row["kids_lights_on"] = int(lights_signal(devs, presence())["someone_in"] and not any(v["home"] for v in presence().values()))
             _errors.pop("tuya", None)
         except Exception as e:
             _errors["tuya"] = str(e)[:200]
@@ -216,6 +219,7 @@ def status():
         "devices": tuya.devices(),
         "weather": w,
         "presence": presence(),
+        "lights_signal": lights_signal(tuya.devices(), presence()),
         "hold": bool(db.get_state("hold", False)),
         "errors": _errors,
         "now": int(time.time()),

@@ -126,6 +126,9 @@ class TuyaClient:
                 "online": d.online,
                 "on": bool(st.get(on_key)) if on_key else None,
                 "mode": st.get("work_mode"),
+                "red": _is_red(st),
+                "sig": json.dumps([st.get(on_key), st.get("work_mode"), st.get("colour_data_v2") or st.get("colour_data"),
+                                   st.get("bright_value_v2") or st.get("bright_value")], sort_keys=True, default=str),
                 "kids": d.id in kids_ids,
                 "hidden": d.id in hidden_ids,
                 "home": self.home_of.get(d.id, ""),
@@ -163,6 +166,19 @@ def _first(status: dict, keys: list):
         if k in status:
             return k
     return None
+
+
+def _is_red(st: dict) -> bool:
+    """Light on, in colour mode, with a red hue (the kids' night setting)."""
+    if st.get("work_mode") != "colour":
+        return False
+    c = st.get("colour_data_v2") or st.get("colour_data")
+    try:
+        c = json.loads(c) if isinstance(c, str) else c
+        h = float(c.get("h", -1))
+        return 0 <= h <= 25 or h >= 335
+    except Exception:
+        return False
 
 
 def _power(st: dict):
