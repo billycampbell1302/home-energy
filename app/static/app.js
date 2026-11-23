@@ -234,8 +234,7 @@ async function loadSetup() {
   $('hive-done').style.display = s.hive_configured ? 'block' : 'none';
   $('bright-done').style.display = s.bright_configured ? 'block' : 'none';
   $('cl-done').style.display = s.connectlife_configured ? 'block' : 'none';
-  $('st-done').style.display = s.smartthings_configured ? 'block' : 'none';
-  $('st-form').style.display = s.smartthings_configured ? 'none' : 'block';
+
   $('cl-form').style.display = s.connectlife_configured ? 'none' : 'block';
   $('bright-form').style.display = s.bright_configured ? 'none' : 'block';
   $('hive-form').style.display = s.hive_configured ? 'none' : 'block';

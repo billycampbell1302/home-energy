@@ -260,26 +260,6 @@
     </div>
 
     <div class="card">
-      <h2>7 · Samsung TV (SmartThings)</h2>
-      <div id="st-done" class="ok" style="display:none">✓ Connected</div>
-      <div id="st-form">
-        <p class="muted">One-off setup:</p>
-        <ol class="muted" style="padding-left:18px;margin:0 0 8px">
-          <li>Open <a href="https://account.smartthings.com/tokens" target="_blank" style="color:var(--cool)">account.smartthings.com/tokens</a> and sign in with your Samsung account.</li>
-          <li>Tap <b>Generate new token</b>, name it <i>home-energy</i>, tick <b>every</b> permission box, and generate.</li>
-          <li>Copy the token, paste it below and tap Continue.</li>
-        </ol>
-        <input id="st-pat" placeholder="SmartThings token" autocomplete="off" autocapitalize="off">
-        <button class="primary" onclick="stStart()">Continue</button>
-        <div id="st-approve" style="display:none;margin-top:10px">
-          <p class="muted">Last step – approve access (it remembers this, so it's only once):</p>
-          <a id="st-link" class="primary" style="display:inline-block;padding:11px 14px;border-radius:12px;background:var(--warm);color:#1b0f05;font-weight:600;text-decoration:none">Approve in SmartThings</a>
-        </div>
-        <p id="st-msg" class="err"></p>
-      </div>
-    </div>
-
-    <div class="card">
       <h2>App updates</h2>
       <p class="muted" id="version">Version …</p>
       <button class="primary" id="update-btn" onclick="checkUpdates()">Check for updates now</button>
