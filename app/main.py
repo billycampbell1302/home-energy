@@ -75,6 +75,10 @@ def poll_once():
                 comfort_guard(home_now)
                 from . import thermal
                 thermal.act(hive.summary(), home_now, bool(db.get_state("hold", False)))
+                try:
+                    thermal.kids_morning(hive.summary(), home_now, bool(db.get_state("hold", False)))
+                except Exception as e:
+                    log.warning("kids morning: %s", e)
             except Exception as e:
                 log.warning("Hive change tracking: %s", e)
             row.update(indoor_temp=s.get("indoor_temp"), target_temp=s.get("target_temp"),

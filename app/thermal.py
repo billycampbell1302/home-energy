@@ -27,6 +27,7 @@ FEATURES = {
     "window": "Open-window pause",
     "savings": "Savings nudge – try ½° lower every 2 weeks if nobody's cold",
     "suggestions": "Heating-off suggestions from your routine",
+    "kids_wake": "Kids up early (Fire Stick / tablets / lights) → warm the flat",
     "dehum_cheap": "Dehumidifier – evening drying waits for the cheap rate",
     "dehum_damp": "Dehumidifier – start it when the flat's damp",
 }
@@ -374,7 +375,9 @@ def info(s: dict | None = None) -> dict:
     m = model()
     out = {"model": m, "features": features(), "wanted": wanted(), "labels": FEATURES, "phase3": sorted(PHASE3),
            "learning_days": round(learning_days(), 1), "learning_target": LEARNING_DAYS, "savings_offset": savings_offset(),
-           "sun_skew": sun_skewed(), "window_pause": bool(db.get_state("window_pause"))}
+           "sun_skew": sun_skewed(), "window_pause": bool(db.get_state("window_pause")),
+           "kids_wake": {"weekday": _fmt(wake_time(_next_weekday(False))), "weekend": _fmt(wake_time(_next_weekday(True))),
+                         "mornings": len(db.get_state("wake_log", []))}}
     try:
         outdoor = weather.current()["temp"]
     except Exception:
@@ -519,3 +522,126 @@ def report(days: int = 30) -> dict:
     return {"days": days, "counts": c, "saved": {k: round(v, 2) for k, v in saved.items()},
             "saved_total": round(sum(saved.values()), 2), "savings_offset": off, "model_confident": m.get("confident"),
             "learning_left": max(0, math.ceil(LEARNING_DAYS - learning_days())), "timeline": timeline[:15]}
+
+
+# ---------- Kids waking up early ----------
+def _wake_signal() -> str | None:
+    """What shows the kids are up right now: a Fire Stick streaming, a kids' tablet/console in use,
+    or a kids' light changed from night red (switched to white or off)."""
+    from . import router
+    try:
+        if router.streaming():
+            return "Fire Stick on"
+        if router.kids_devices_in_use():
+            return "kids' tablet in use"
+    except Exception:
+        pass
+    try:
+        from .tuya import tuya
+        act = db.get_state("light_activity", {})
+        now = time.time()
+        reds = set(db.get_state("night_red_ids", []))      # lights that sit on night red = the kids' lights
+        for d in tuya.devices():
+            if (d.get("kids") or d["id"] in reds) and not d["hidden"] and now - act.get(d["id"], 0) < 10 * 60 \
+                    and not (d["on"] and d.get("red")):
+                return f"{d['name']} changed"
+    except Exception:
+        pass
+    return None
+
+
+def _note_night_reds():
+    now = datetime.now()
+    if now.hour >= 20 or now.hour < 4:
+        try:
+            from .tuya import tuya
+            reds = set(db.get_state("night_red_ids", []))
+            reds |= {d["id"] for d in tuya.devices() if d["on"] and d.get("red")}
+            db.set_state("night_red_ids", sorted(reds))
+        except Exception:
+            pass
+
+
+def detect_wake() -> dict | None:
+    """First sign of the kids up between 04:00 and 09:30 each day → logged once, returned on that poll."""
+    _note_night_reds()
+    now = datetime.now()
+    if not (4 <= now.hour < 9 or (now.hour == 9 and now.minute < 30)):
+        return None
+    log = db.get_state("wake_log", [])
+    today = str(now.date())
+    if any(w["date"] == today for w in log):
+        return None
+    why = _wake_signal()
+    if not why:
+        return None
+    w = {"date": today, "hour": round(now.hour + now.minute / 60, 2), "weekend": now.weekday() >= 5, "why": why}
+    db.set_state("wake_log", (log + [w])[-60:])
+    db.add_event("smart", {"kids_up": f"kids up at {now:%H:%M} ({why})"})
+    return w
+
+
+def wake_time(day: datetime | None = None) -> float | None:
+    """Usual time the kids are up (hours), for weekdays or weekends - the earlier side, so the flat's warm in time."""
+    day = day or datetime.now()
+    weekend = day.weekday() >= 5
+    hours = sorted(w["hour"] for w in db.get_state("wake_log", [])[-40:] if w["weekend"] == weekend)
+    if len(hours) < 3:
+        return None
+    return hours[max(0, len(hours) // 4)]          # lower quartile: warm by their earlier mornings, not just the average
+
+
+def kids_morning(s: dict, home_now: list, hold: bool):
+    """Reacts to the kids getting up, and (after the learning phase) warms the flat before they usually do."""
+    from .hive import hive
+    from . import comfort, weather
+    f = features()
+    indoor, target, mode = s.get("indoor_temp"), s.get("target_temp"), s.get("mode")
+    if indoor is None or mode == "OFF" or db.get_state("window_pause"):
+        return
+    now = datetime.now()
+    warm_to = comfort.for_people(PEOPLE_ALL(), hour=7)["temp"]    # morning comfort for the household
+
+    # 1. They're up and it's cold → warm it now (works from day one)
+    w = detect_wake()
+    if w and f["kids_wake"] and indoor < warm_to - 0.5 and mode != "BOOST" and (target or 0) < warm_to:
+        hive.boost(60, warm_to)
+        db.add_event("smart", {"kids_up": f"warming to {warm_to}° – kids up and it's {indoor}°"})
+
+    # 2. Early-On for the kids: be warm by the time they usually get up
+    wt = wake_time(now)
+    key = f"kids_preheat_{now.date()}"
+    if (wt is None or not f["early_on"] or not f["kids_wake"] or db.get_state(key) or mode == "BOOST"
+            or (target or 0) >= warm_to or indoor >= warm_to - 0.3):
+        return
+    m = model()
+    if not m.get("confident"):
+        return
+    try:
+        outdoor = weather.current()["temp"]
+    except Exception:
+        return
+    wake_at = datetime(now.year, now.month, now.day) + timedelta(hours=wt)
+    mins_left = (wake_at - now).total_seconds() / 60
+    need = heat_minutes(indoor, warm_to, outdoor, m)
+    if need and 0 < mins_left <= min(need + 5, 120):
+        hive.boost(int(mins_left) + 60, warm_to)
+        db.set_state(key, True)
+        db.add_event("smart", {"early_on": f"warming to {warm_to}° for {wake_at:%H:%M}, when the kids are usually up",
+                               "mins": int(mins_left)})
+
+
+def PEOPLE_ALL():
+    from .config import PEOPLE
+    return list(PEOPLE)
+
+
+def _fmt(h):
+    return None if h is None else f"{int(h):02d}:{int(round(h % 1 * 60)) % 60:02d}"
+
+
+def _next_weekday(weekend: bool) -> datetime:
+    d = datetime.now()
+    while (d.weekday() >= 5) != weekend:
+        d += timedelta(days=1)
+    return d

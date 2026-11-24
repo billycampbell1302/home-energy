@@ -211,6 +211,8 @@ async function loadThermal() {
       (m.g ? `<div style="padding:3px 0">☀️ Sunshine adds up to ${(m.g * 5).toFixed(1)}°/hour of free heat on a bright day</div>` : '') +
       `<p class="muted" style="font-size:12px">Learned from ${m.cool_runs} cool-down and ${m.heat_runs} warm-up periods${m.confident ? '' : ' – needs 5 of each before it acts on it'}.</p>`
     : '<p>Still measuring how fast the flat warms up and cools down – needs a few heating cycles.</p>';
+  const kw = t.kids_wake;
+  html += `<div style="padding:6px 0">🧒 Kids usually up: ${kw.weekday || kw.weekend ? `weekdays ${kw.weekday || 'learning'} · weekends ${kw.weekend || 'learning'}` : `learning (${kw.mornings} morning${kw.mornings === 1 ? '' : 's'} so far – from the Fire Sticks, tablets and their lights)`}</div>`;
   html += '<div style="margin-top:8px">' + Object.entries(t.labels).map(([k, label]) => {
     const locked = t.phase3.includes(k) && left > 0;
     return `<label class="row" style="padding:6px 0"><span>${esc(label)}${locked ? `<br><span class="muted" style="font-size:12px">Ready – switches on after the learning phase (${left} day${left === 1 ? '' : 's'} to go)</span>` : ''}</span>
