@@ -442,6 +442,47 @@ def thermal_suggestion(sg: Suggestion):
     return thermal_info()
 
 
+@app.get("/api/diagnostics")
+def diagnostics():
+    """Plain-text snapshot to paste to Claude. No passwords, tokens, MAC addresses or coordinates."""
+    from . import router, location, thermal
+    now = time.time()
+    ago = lambda ts: f"{int((now - ts) / 60)} min ago" if ts else "never"
+    L = [f"Version {_commit()} · {time.strftime('%Y-%m-%d %H:%M')}", ""]
+    L.append(f"ROUTER: last report {ago(db.get_state('router_last_report', 0))} · settling={router.settling()}")
+    devs, roles = db.get_state("router_devices", {}), db.get_state("router_roles", {})
+    for mac, role in roles.items():
+        if role.startswith("person:") or role in ("streamer", "kids"):
+            d = devs.get(mac, {})
+            L.append(f"  {role:14} {d.get('name') or '?':24} …{mac[-5:]} seen {ago(d.get('last_seen', 0))} · {round(d.get('bps', 0) * 8 / 1000)} kbps")
+    L.append(f"  router people_home: {router.people_home()}")
+    L.append("")
+    L.append("PRESENCE: " + ", ".join(f"{p}={'home' if v['home'] else 'out'} since {ago(v['since'])}" for p, v in presence().items()))
+    for p in PEOPLE:
+        st = location.status(p)
+        fx = location._fixes(p, now - 86400)
+        L.append(f"  OwnTracks {p}: {len(fx)} fixes in 24h" + (f", last {st['age_min']} min ago, {st['km']} km from home, at_home={st['at_home']}" if st else ""))
+    L.append(f"  home point learned: {bool(db.get_state('home_point'))}")
+    L.append("")
+    with db._lock:
+        ev = db._conn.execute("SELECT ts, kind, detail FROM events WHERE kind IN ('presence','router','smart','error') "
+                              "ORDER BY ts DESC LIMIT 25").fetchall()
+    L.append("RECENT EVENTS:")
+    L += [f"  {time.strftime('%d %H:%M', time.localtime(ts))} {k}: {d[:120]}" for ts, k, d in ev]
+    L.append("")
+    h = hive.summary() if hive.last_nodes else {}
+    L.append(f"HIVE: {h.get('indoor_temp')}° target {h.get('target_temp')}° mode {h.get('mode')} boiler_on={h.get('boiler_on')}")
+    m = thermal.model()
+    L.append(f"THERMAL: k={m.get('k')} a={m.get('a')} runs {m.get('cool_runs')}/{m.get('heat_runs')} confident={m.get('confident')} "
+             f"learning day {thermal.learning_days():.1f}")
+    for d in tuya.devices():
+        if d["kind"] == "dehumidifier":
+            L.append(f"DEHUMIDIFIER: on={d['on']} {d.get('humidity')}% set {d.get('set_humidity')}% faults={d.get('faults')} "
+                     f"state={ {k: v for k, v in (db.get_state('dehum', {}).get(d['id']) or {}).items() if k != 'hist'} }")
+    L.append(f"ERRORS: {_errors or 'none'}")
+    return PlainTextResponse("\n".join(L))
+
+
 @app.get("/api/routine")
 def routine():
     from . import routine as r

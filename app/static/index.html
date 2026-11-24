@@ -344,6 +344,13 @@
     </div>
 
     <div class="card">
+      <h2>Diagnostics for Claude</h2>
+      <p class="muted">Something not right? Tap Copy, then paste it into your chat with Claude. No passwords, tokens or locations are included.</p>
+      <button class="primary" onclick="copyDiag()">Copy diagnostics</button>
+      <pre id="diag" style="font-size:11px;white-space:pre-wrap;display:none;max-height:300px;overflow:auto"></pre>
+    </div>
+
+    <div class="card">
       <h2>App updates</h2>
       <p class="muted" id="version">Version …</p>
       <button class="primary" id="update-btn" onclick="checkUpdates()">Check for updates now</button>

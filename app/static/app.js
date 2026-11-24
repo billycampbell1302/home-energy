@@ -367,6 +367,13 @@ async function loadVersion() {
   return v;
 }
 
+async function copyDiag() {
+  const r = await fetch('/api/diagnostics', {credentials: 'same-origin'});
+  const text = await r.text();
+  const el = $('diag'); el.textContent = text; el.style.display = 'block';
+  try { await navigator.clipboard.writeText(text); toast('Copied – paste it into your chat with Claude'); }
+  catch (_) { toast('Press and hold the text to copy it'); }
+}
 async function checkUpdates() {
   const btn = $('update-btn'); btn.disabled = true;
   const before = (await api('/api/update', {})).commit;
