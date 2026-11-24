@@ -70,7 +70,8 @@ def report(clients: list, uptime: int | None = None) -> dict:
             d["streaming_until"] = now + STREAM_HOLD
         if d["bps"] >= KIDS_BPS:
             d["active_until"] = now + KIDS_HOLD
-        d.update(bytes=total, last_seen=now, name=c.get("name") or d.get("name") or "", ip=c.get("ip") or d.get("ip"))
+        d.update(bytes=total, last_seen=now, name=c.get("name") or d.get("name") or "", ip=c.get("ip") or d.get("ip"),
+                 wired=bool(c.get("wired")))
         if mac not in roles:
             auto = _auto_role(d["name"], mac)
             if auto:
@@ -129,7 +130,7 @@ def device_list() -> list:
     devs, roles = db.get_state("router_devices", {}), db.get_state("router_roles", {})
     now = time.time()
     rows = [{"mac": m, "name": d.get("name") or "", "ip": d.get("ip"), "seen_ago": int(now - d.get("last_seen", 0)),
-             "kbps": round(d.get("bps", 0) * 8 / 1000), "role": roles.get(m, ""),
+             "kbps": round(d.get("bps", 0) * 8 / 1000), "role": roles.get(m, ""), "wired": d.get("wired", False),
              "online": now - d.get("last_seen", 0) < 3 * 60,
              "streaming": d.get("streaming_until", 0) > now, "in_use": d.get("active_until", 0) > now}
             for m, d in devs.items()]
@@ -143,7 +144,7 @@ def set_role(mac: str, role: str):
 
 
 SCRIPT = r"""#!/bin/sh
-# Home Energy: report Wi-Fi devices and their traffic to the dashboard (runs every minute from cron).
+# Home Energy: report Wi-Fi and wired devices and their traffic to the dashboard (runs every minute from cron).
 URL='__URL__'
 LEASES=/tmp/dhcp.leases
 OUT=""
@@ -151,12 +152,40 @@ for IF in $(iw dev 2>/dev/null | awk '/Interface/ {print $2}'); do
   OUT="$OUT$(iw dev "$IF" station dump 2>/dev/null | awk '/^Station/ {mac=$2} /rx bytes:/ {rx=$3} /tx bytes:/ {print mac, rx, $3}')
 "
 done
+WIFI=$(echo "$OUT" | awk 'NF==3 {print tolower($1)}')
+# Wired devices: anything on the LAN that isn't on Wi-Fi. Traffic counted with one nftables counter per address.
+nft list table inet homeenergy >/dev/null 2>&1 || nft -f - <<'EOF'
+table inet homeenergy {
+  chain traffic { type filter hook forward priority -5; policy accept; }
+}
+EOF
+[ "$(nft list chain inet homeenergy traffic 2>/dev/null | grep -c counter)" -gt 200 ] && nft flush chain inet homeenergy traffic
+RULES=$(nft list chain inet homeenergy traffic 2>/dev/null)
+WIRED=""
+for L in $(ip -4 neigh show dev br-lan 2>/dev/null | awk '$2=="lladdr" && $4!="FAILED" && $4!="INCOMPLETE" {print $1 "," tolower($3)}'); do
+  IP=${L%,*}; MAC=${L#*,}
+  echo "$WIFI" | grep -qx "$MAC" && continue
+  if ! echo "$RULES" | grep -q "ip daddr $IP counter"; then
+    nft add rule inet homeenergy traffic ip daddr "$IP" counter
+    nft add rule inet homeenergy traffic ip saddr "$IP" counter
+  fi
+  WIRED="$WIRED$MAC $IP
+"
+done
+RULES=$(nft list chain inet homeenergy traffic 2>/dev/null)
+OUT="$OUT$(echo "$WIRED" | while read MAC IP; do
+  [ -n "$IP" ] || continue
+  B=$(echo "$RULES" | awk -v ip="$IP" '$1=="ip" && $3==ip {for (i=1;i<NF;i++) if ($i=="bytes") s+=$(i+1)} END {print s+0}')
+  echo "$MAC $B 0 w"
+done)
+"
 JSON=$(echo "$OUT" | awk -v leases="$LEASES" '
   BEGIN { while ((getline l < leases) > 0) { split(l, f, " "); name[tolower(f[2])] = f[4]; ip[tolower(f[2])] = f[3] } }
-  NF == 3 { m = tolower($1); n = (m in name) ? name[m] : ""; if (n == "*") n = "";
-            gsub(/"/, "", n); printf "%s{\"mac\":\"%s\",\"name\":\"%s\",\"ip\":\"%s\",\"rx\":%s,\"tx\":%s}", sep, m, n, ip[m], $2, $3; sep = "," }')
+  NF >= 3 { m = tolower($1); n = (m in name) ? name[m] : ""; if (n == "*") n = "";
+            gsub(/"/, "", n); printf "%s{\"mac\":\"%s\",\"name\":\"%s\",\"ip\":\"%s\",\"rx\":%s,\"tx\":%s,\"wired\":%s}", sep, m, n, ip[m], $2, $3, ($4=="w" ? "true" : "false"); sep = "," }')
+OFFLOAD=$(uci -q get firewall.@defaults[0].flow_offloading || echo 0)
 UP=$(cut -d. -f1 /proc/uptime)
-uclient-fetch -q -T 20 -O /dev/null --post-data="{\"uptime\":$UP,\"clients\":[$JSON]}" "$URL" 2>/dev/null
+uclient-fetch -q -T 20 -O /dev/null --post-data="{\"uptime\":$UP,\"offload\":\"$OFFLOAD\",\"clients\":[$JSON]}" "$URL" 2>/dev/null
 """
 
 

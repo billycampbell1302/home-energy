@@ -524,9 +524,9 @@ async function loadRouter() {
   $('router-setup').style.display = r.active ? 'none' : 'block';
   if (!r.devices.length) { $('router-devices').innerHTML = ''; return; }
   const opts = [['', '—'], ...r.people.map((p) => ['person:' + p, p + "'s phone"]), ['streamer', 'Fire Stick / TV streamer'], ['kids', "Kids' tablet / console"], ['ignore', 'Ignore']];
-  $('router-devices').innerHTML = `<p class="muted" style="margin-bottom:4px">Devices on your Wi-Fi – phones and Fire Sticks are recognised by name; fix any that are wrong:</p>` +
+  $('router-devices').innerHTML = `<p class="muted" style="margin-bottom:4px">Devices on your network (Wi-Fi and wired) – phones and Fire Sticks are recognised by name; fix any that are wrong:</p>` +
     r.devices.slice(0, 40).map((d) => `<div class="device row" style="gap:8px">
-      <div style="min-width:0"><b>${esc(d.name || 'Unnamed device')}</b><div class="muted" style="font-size:12px">${esc(d.mac)} · ${d.seen_ago < 120 ? 'online' : 'seen ' + ago(Date.now() / 1000 - d.seen_ago)}${d.kbps > 50 ? ' · ' + d.kbps + ' kbit/s' : ''}</div></div>
+      <div style="min-width:0"><b>${esc(d.name || 'Unnamed device')}</b><div class="muted" style="font-size:12px">${d.wired ? '🔌 wired · ' : ''}${esc(d.mac)} · ${d.seen_ago < 120 ? 'online' : 'seen ' + ago(Date.now() / 1000 - d.seen_ago)}${d.kbps > 50 ? ' · ' + d.kbps + ' kbit/s' : ''}</div></div>
       <select onchange="setRouterRole('${d.mac}', this.value)" style="font:inherit;background:#11141a;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px">
         ${opts.map(([v, l]) => `<option value="${v}" ${d.role === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>`).join('');
 }

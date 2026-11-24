@@ -455,7 +455,7 @@ def diagnostics():
         if role.startswith("person:") or role in ("streamer", "kids"):
             d = devs.get(mac, {})
             L.append(f"  {role:14} {d.get('name') or '?':24} …{mac[-5:]} seen {ago(d.get('last_seen', 0))} · {round(d.get('bps', 0) * 8 / 1000)} kbps")
-    L.append(f"  router people_home: {router.people_home()}")
+    L.append(f"  router people_home: {router.people_home()} · flow offloading={db.get_state('router_offload', '?')}")
     L.append("")
     L.append("PRESENCE: " + ", ".join(f"{p}={'home' if v['home'] else 'out'} since {ago(v['since'])}" for p, v in presence().items()))
     for p in PEOPLE:
@@ -762,6 +762,7 @@ async def router_hook(request: Request, token: str):
         body = json.loads((await request.body()) or b"{}")
     except ValueError:
         raise HTTPException(400, "Bad JSON")
+    db.set_state("router_offload", str(body.get("offload", "")))
     up = body.get("uptime")
     router.report(body.get("clients", []), int(up) if isinstance(up, (int, float)) else None)
     # Phones the router knows about decide that person's presence (the Wi-Fi shortcuts become a backup).
