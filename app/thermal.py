@@ -27,6 +27,8 @@ FEATURES = {
     "window": "Open-window pause",
     "savings": "Savings nudge – try ½° lower every 2 weeks if nobody's cold",
     "suggestions": "Heating-off suggestions from your routine",
+    "dehum_cheap": "Dehumidifier – evening drying waits for the cheap rate",
+    "dehum_damp": "Dehumidifier – start it when the flat's damp",
 }
 
 
@@ -495,6 +497,16 @@ def report(days: int = 30) -> dict:
                 saved["window"] += 20 / 60 * cost_h
             elif key == "sunblock":
                 c["sunblock"] += 1
+            elif key == "dehumidifier":
+                if d.get("cheap_hours"):
+                    from .dehumid import DEFAULT_KW
+                    t = tariff_settings()
+                    c["dehum_cheap_h"] = c.get("dehum_cheap_h", 0) + d["cheap_hours"]
+                    saved["dehumidifier"] = saved.get("dehumidifier", 0) + d["cheap_hours"] * DEFAULT_KW * (t["day_rate"] - t["night_rate"]) / 100
+                elif "paused until" in text:
+                    c["dehum_deferred"] = c.get("dehum_deferred", 0) + 1
+                timeline.append({"ts": ts, "icon": "👕", "text": text[0].upper() + text[1:]})
+                break
             elif key == "suggestion" and "heating down" in text:
                 c["setbacks"] += 1
                 saved["suggestions"] += d.get("setback", 3) * 0.08 * cost_h * 3   # rough: ~8%/° over a few hours

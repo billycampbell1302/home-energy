@@ -22,6 +22,10 @@ SCHEMA = "haauthorize"
 
 LIGHT_CATEGORIES = {"dj", "dd", "xdd", "fwd", "dc", "fsd", "tyndj", "gyd"}
 PLUG_CATEGORIES = {"cz", "pc", "kg", "tdq"}
+DEHUMID_CATEGORIES = {"cs"}
+HUMIDITY_KEYS = ["humidity_indoor", "envhumid", "humidity_value", "va_humidity", "humidity"]
+TEMP_KEYS = ["temp_indoor", "envtemp", "temp_current", "va_temperature", "temperature"]
+SET_KEYS = ["dehumidify_set_value", "dehumidify_set_enum", "humidity_set"]
 
 
 class _TokenSaver(SharingTokenListener):
@@ -111,7 +115,10 @@ class TuyaClient:
         kids_ids = set(db.get_state("kids_lights", []))
         hidden_ids = set(db.get_state("hidden_devices", []))
         for d in self._manager.device_map.values():
-            if d.category in LIGHT_CATEGORIES:
+            st0 = d.status or {}
+            if d.category in DEHUMID_CATEGORIES or ("dehumidify_set_value" in st0 or "dehumidify_set_enum" in st0):
+                kind = "dehumidifier"
+            elif d.category in LIGHT_CATEGORIES:
                 kind = "light"
             elif d.category in PLUG_CATEGORIES:
                 kind = "plug"
@@ -133,6 +140,7 @@ class TuyaClient:
                 "hidden": d.id in hidden_ids,
                 "home": self.home_of.get(d.id, ""),
                 "power_w": _power(st),
+                **(_dehumid(d) if kind == "dehumidifier" else {}),
             })
         return sorted(out, key=lambda x: (x["kind"], x["name"]))
 
@@ -159,6 +167,62 @@ class TuyaClient:
             # Update our cached copy straight away so the dashboard reflects it.
             for c in cmds:
                 d.status[c["code"]] = c["value"] if not isinstance(c["value"], str) or not c["value"].startswith("{") else json.loads(c["value"])
+
+
+def _scaled(d, code):
+    """Tuya numbers can be stored ×10 or ×100 - the device's spec says how many decimal places."""
+    v = (d.status or {}).get(code)
+    if v is None or isinstance(v, bool):
+        return v
+    try:
+        rng = getattr(d, "status_range", {}) or {}
+        spec = rng.get(code)
+        vals = json.loads(spec.values) if spec is not None and isinstance(spec.values, str) else {}
+        return round(float(v) / (10 ** int(vals.get("scale", 0))), 1)
+    except Exception:
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return v
+
+
+def _fault_labels(d) -> list:
+    """Names of the faults a Tuya 'fault' bitmap currently has set (e.g. tank full)."""
+    st = d.status or {}
+    raw = st.get("fault")
+    if not raw:
+        return []
+    labels = []
+    try:
+        spec = (getattr(d, "status_range", {}) or {}).get("fault")
+        labels = json.loads(spec.values).get("label", []) if spec is not None else []
+    except Exception:
+        pass
+    try:
+        bits = int(raw)
+    except (TypeError, ValueError):
+        return [str(raw)]
+    on = [labels[i] if i < len(labels) else f"fault {i}" for i in range(32) if bits >> i & 1]
+    return on or [f"fault {raw}"]
+
+
+def _dehumid(d) -> dict:
+    st = d.status or {}
+    faults = _fault_labels(d)
+    for k in ("tank_full", "water_full", "full_alarm"):
+        if st.get(k):
+            faults.append("tank full")
+    h, t, sp = _first(st, HUMIDITY_KEYS), _first(st, TEMP_KEYS), _first(st, SET_KEYS)
+    return {
+        "humidity": _scaled(d, h) if h else None,
+        "temp": _scaled(d, t) if t else None,
+        "set_humidity": _scaled(d, sp) if sp else None,
+        "dmode": st.get("mode") or st.get("work_mode"),
+        "fan": st.get("fan_speed_enum") or st.get("fan_speed"),
+        "faults": faults,
+        "tank_full": any(any(w in f.lower() for w in ("tank", "full", "water", "e1")) for f in faults),
+        "raw": {k: v for k, v in st.items()},
+    }
 
 
 def _first(status: dict, keys: list):

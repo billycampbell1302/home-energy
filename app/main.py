@@ -108,6 +108,13 @@ def poll_once():
         _errors["weather"] = str(e)[:200]
     row["people_home"] = sum(1 for v in presence().values() if v["home"])
     row["hold"] = int(bool(db.get_state("hold", False)))
+    if tuya.is_configured():
+        try:
+            from . import dehumid
+            dehumid.check()
+            row.setdefault("extra", {}).update(dehumid.reading_extras())
+        except Exception as e:
+            log.warning("dehumidifier: %s", e)
     from . import thermal
     if thermal.sun_skewed():
         row.setdefault("extra", {})["sun_skew"] = True

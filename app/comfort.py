@@ -29,6 +29,14 @@ DEFAULT = 20.0
 MIN_T, MAX_T = 16.0, 23.0
 
 
+def _humidity():
+    try:
+        from . import dehumid
+        return dehumid.reading_extras().get("indoor_humidity")
+    except Exception:
+        return None
+
+
 def record(people: list, feeling: str, indoor: float | None, source: str, outdoor: float | None = None):
     """feeling: cold | ok | warm. `people` = whose comfort this tells us about."""
     if indoor is None or feeling not in ("cold", "ok", "warm") or not people:
@@ -40,7 +48,8 @@ def record(people: list, feeling: str, indoor: float | None, source: str, outdoo
         thermal.savings_feedback_cold()
     log = db.get_state("comfort_log", [])
     log.append({"ts": int(time.time()), "people": people, "feeling": feeling, "indoor": round(float(indoor), 1),
-                "outdoor": outdoor, "source": source, "hour": time.localtime().tm_hour})
+                "outdoor": outdoor, "source": source, "hour": time.localtime().tm_hour,
+                "humidity": _humidity()})
     db.set_state("comfort_log", log[-500:])
     db.add_event("comfort", {"who": ", ".join(people), "feeling": feeling, "indoor": indoor, "source": source})
 

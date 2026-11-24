@@ -137,7 +137,15 @@ function deviceRow(d, full) {
        <button class="small" onclick="dev('${d.id}','off')">Off</button>`;
   const kidsToggle = full
     ? `<div class="row" style="margin-top:6px"><span></span><button class="small" onclick="hideDev('${d.id}', true)">Hide</button></div>` : '';
-  const state = !d.online ? 'offline' : d.on ? (d.mode === 'colour' ? 'on · colour' : 'on') : 'off';
+  let state = !d.online ? 'offline' : d.on ? (d.mode === 'colour' ? 'on · colour' : 'on') : 'off';
+  if (d.kind === 'dehumidifier') {
+    state += d.humidity != null ? ` · ${d.humidity}%` : '';
+    if (d.tank_full) state += ' · TANK FULL';
+    const extra = `<div class="muted" style="font-size:13px;margin-top:4px">Humidity ${d.humidity ?? '–'}% (set ${d.set_humidity ?? '–'}%) · ${d.temp ?? '–'}° by the unit${d.dmode ? ' · ' + esc(String(d.dmode)) : ''}${d.faults && d.faults.length ? ' · ⚠️ ' + esc(d.faults.join(', ')) : ''}</div>` +
+      (full ? `<details style="margin-top:4px"><summary class="muted" style="font-size:12px">Everything it reports</summary><pre style="font-size:11px;white-space:pre-wrap">${esc(JSON.stringify(d.raw, null, 1))}</pre></details>` : '');
+    return `<div class="device"><div class="row"><b>💧 ${esc(d.name)}</b><span class="pill ${d.on ? 'on' : ''}">${state}</span></div>${extra}
+      <div class="wrap" style="margin-top:8px">${btns}</div>${kidsToggle}</div>`;
+  }
   return `<div class="device"><div class="row"><b>${esc(d.name)}</b><span class="pill ${d.on ? 'on' : ''}">${state}${d.power_w != null ? ' · ' + d.power_w + ' W' : ''}</span></div>
     <div class="wrap" style="margin-top:8px">${btns}</div>${kidsToggle}</div>`;
 }
@@ -190,6 +198,8 @@ async function loadThermal() {
   if (t.window_pause) line.push('🪟 Window open? Heating paused for 20 min');
   if (t.sun_skew) line.push('☀️ Sun is warming the thermostat');
   if (t.eta_min) line.push(`Warm in about ${t.eta_min} min`);
+  const dh = (S.devices || []).find((d) => d.kind === 'dehumidifier' && !d.hidden);
+  if (dh && dh.humidity != null) line.push(`💧 ${dh.humidity}% humidity${dh.humidity >= 65 ? ' – damp' : ''}${dh.tank_full ? ' · tank full' : ''}`);
   if ($('thermal-line')) $('thermal-line').textContent = line.join(' · ');
   if (!$('thermal')) return;
   const m = t.model, ex = t.examples, left = Math.max(0, Math.ceil(t.learning_target - t.learning_days));
@@ -227,6 +237,7 @@ async function loadSmartReport() {
     line('🪟', 'Window pauses', `${c.window}×`, gbp(sv.window)) +
     line('📅', 'Empty-flat turn-downs', `${c.setbacks}×`, gbp(sv.suggestions)) +
     line('💷', 'Savings nudge', r.savings_offset ? `${r.savings_offset}°` : 'off', gbp(sv.nudge)) +
+    (c.dehum_cheap_h || c.dehum_deferred ? line('👕', 'Clothes dried on cheap rate', `${(c.dehum_cheap_h || 0).toFixed(1)} h`, gbp(sv.dehumidifier)) : '') +
     line('⏰', 'Early-On (comfort)', `${c.early_on}×`, c.early_on_min ? `warm ${c.early_on_min} min sooner in total` : '') +
     line('☀️', 'Sun on thermostat', `${c.sunblock}×`, 'kept out of learning') +
     line('🥶', 'Comfort taps', `${c.comfort_taps}`, 'what it learns from');
