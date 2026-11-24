@@ -222,7 +222,16 @@ def _dehumid(d) -> dict:
         "faults": faults,
         "tank_full": any(any(w in f.lower() for w in ("tank", "full", "water", "e1")) for f in faults),
         "raw": {k: v for k, v in st.items()},
+        "learned": _learned(),
     }
+
+
+def _learned():
+    try:
+        from . import dehumid
+        return dehumid.learned()
+    except Exception:
+        return None
 
 
 def _first(status: dict, keys: list):

@@ -142,6 +142,7 @@ function deviceRow(d, full) {
     state += d.humidity != null ? ` · ${d.humidity}%` : '';
     if (d.tank_full) state += ' · TANK FULL';
     const extra = `<div class="muted" style="font-size:13px;margin-top:4px">Humidity ${d.humidity ?? '–'}% (set ${d.set_humidity ?? '–'}%) · ${d.temp ?? '–'}° by the unit${d.dmode ? ' · ' + esc(String(d.dmode)) : ''}${d.fan ? ' · fan ' + esc(String(d.fan)) : ''}${d.faults && d.faults.length ? ' · ⚠️ ' + esc(d.faults.join(', ')) : ''}</div>` +
+      (d.learned ? `<div class="muted" style="font-size:13px">👕 ${d.learned.loads >= 2 ? `Loads take about ${d.learned.dry_hours} h (learned from ${d.learned.loads})` : `Learning how long loads take (assuming ${d.learned.dry_hours} h for now)`} · ${d.learned.collect_samples >= 3 ? 'dry by' : 'aiming to be dry by'} ${d.learned.ready_by_text}</div>` : '') +
       (full ? `<details style="margin-top:4px"><summary class="muted" style="font-size:12px">Everything it reports</summary><pre style="font-size:11px;white-space:pre-wrap">${esc(JSON.stringify(d.raw, null, 1))}</pre></details>` : '');
     return `<div class="device"><div class="row"><b>💧 ${esc(d.name)}</b><span class="pill ${d.on ? 'on' : ''}">${state}</span></div>${extra}
       <div class="wrap" style="margin-top:8px">${btns}</div>${kidsToggle}</div>`;
