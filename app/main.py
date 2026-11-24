@@ -73,6 +73,8 @@ def poll_once():
                 home_now = [p for p, v in presence().items() if v["home"]]
                 hive.track_changes(home_now)
                 comfort_guard(home_now)
+                from . import thermal
+                thermal.act(hive.summary(), home_now, bool(db.get_state("hold", False)))
             except Exception as e:
                 log.warning("Hive change tracking: %s", e)
             row.update(indoor_temp=s.get("indoor_temp"), target_temp=s.get("target_temp"),
@@ -106,7 +108,18 @@ def poll_once():
         _errors["weather"] = str(e)[:200]
     row["people_home"] = sum(1 for v in presence().values() if v["home"])
     row["hold"] = int(bool(db.get_state("hold", False)))
+    from . import thermal
+    if thermal.sun_skewed():
+        row.setdefault("extra", {})["sun_skew"] = True
     db.add_reading(**row)
+    if hive.is_configured():
+        try:
+            thermal.detect(hive.summary())
+            if not db.get_state(f"savings_{time.strftime('%Y-%m-%d')}"):
+                thermal.savings_step()
+                db.set_state(f"savings_{time.strftime('%Y-%m-%d')}", True)
+        except Exception as e:
+            log.warning("smart heating checks: %s", e)
 
 
 def bright_sync():
@@ -341,6 +354,44 @@ def learning_health():
     ]
     days = round((now - first) / 86400, 1) if first else 0
     return {"days": days, "target_days": 14, "checks": [{"name": a, "ok": b, "detail": c} for a, b, c in checks]}
+
+
+@app.get("/api/thermal")
+def thermal_info():
+    from . import thermal
+    out = thermal.info(hive.summary() if hive.is_configured() else None)
+    out["suggestions"] = thermal.suggestions() if thermal.learning_done() else []
+    return out
+
+
+class Feature(BaseModel):
+    key: str
+    on: bool
+
+
+@app.post("/api/thermal/feature")
+def thermal_feature(f: Feature):
+    from . import thermal
+    if f.key not in thermal.FEATURES:
+        raise HTTPException(400, "Unknown feature")
+    saved = db.get_state("thermal_features", {})
+    saved[f.key] = f.on
+    db.set_state("thermal_features", saved)
+    return thermal_info()
+
+
+class Suggestion(BaseModel):
+    days: str
+    start: int
+    end: int
+    on: bool
+
+
+@app.post("/api/thermal/suggestion")
+def thermal_suggestion(sg: Suggestion):
+    from . import thermal
+    thermal.accept_suggestion(sg.days, sg.start, sg.end, sg.on)
+    return thermal_info()
 
 
 @app.get("/api/routine")

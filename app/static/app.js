@@ -33,7 +33,7 @@ function showTab(tab) {
 document.querySelectorAll('nav button').forEach((b) => b.onclick = () => showTab(b.dataset.tab));
 function onTab(tab) {
   const b = {dataset: {tab}};
-  if (tab === 'summary') { loadLearning(); loadSummary(); loadReport(); loadComfort(); }
+  if (tab === 'summary') { loadLearning(); loadSummary(); loadReport(); loadComfort(); loadThermal(); }
   if (b.dataset.tab === 'history') { loadRoutine(); loadHistory(24); loadEvents(); }
   if (b.dataset.tab === 'energy') loadEnergy(30);
   if (tab === 'devices') { loadAppliances(false); loadOverview(); }
@@ -45,6 +45,7 @@ async function load() {
   S = await api('/api/status');
   render();
   loadComfort();
+  loadThermal();
 }
 
 async function loadSummary() {
@@ -180,6 +181,38 @@ async function feel(feeling) {
   await api('/api/comfort', {person, feeling});
   toast({cold: 'Noted – you find this too cold', ok: 'Noted – this feels right', warm: 'Noted – you find this too warm'}[feeling]);
   loadComfort();
+}
+// ---------- Nest-style smarts ----------
+async function loadThermal() {
+  let t;
+  try { t = await api('/api/thermal'); } catch (_) { return; }
+  const line = [];
+  if (t.window_pause) line.push('🪟 Window open? Heating paused for 20 min');
+  if (t.sun_skew) line.push('☀️ Sun is warming the thermostat');
+  if (t.eta_min) line.push(`Warm in about ${t.eta_min} min`);
+  if ($('thermal-line')) $('thermal-line').textContent = line.join(' · ');
+  if (!$('thermal')) return;
+  const m = t.model, ex = t.examples, left = Math.max(0, Math.ceil(t.learning_target - t.learning_days));
+  let html = m.k ? (ex ? `<div style="padding:3px 0">🔥 At ${ex.outdoor}° outside, warming from 17° to 20° takes ${ex.heat_17_to_20 ?? '…'} min</div>
+      <div style="padding:3px 0">🧱 With the heating off it stays within ½° of 20° for about ${ex.hold_half_degree_from_20 ?? '…'} min</div>
+      <div style="padding:3px 0">📉 Loses about ${ex.loss_per_hour_at_20}° an hour at 20° when the heating's off</div>` : '') +
+      (m.wind_factor >= 1.1 ? `<div style="padding:3px 0">💨 Loses heat ${Math.round((m.wind_factor - 1) * 100)}% faster on windy days</div>` : '') +
+      (m.g ? `<div style="padding:3px 0">☀️ Sunshine adds up to ${(m.g * 5).toFixed(1)}°/hour of free heat on a bright day</div>` : '') +
+      `<p class="muted" style="font-size:12px">Learned from ${m.cool_runs} cool-down and ${m.heat_runs} warm-up periods${m.confident ? '' : ' – needs 5 of each before it acts on it'}.</p>`
+    : '<p>Still measuring how fast the flat warms up and cools down – needs a few heating cycles.</p>';
+  html += '<div style="margin-top:8px">' + Object.entries(t.labels).map(([k, label]) => {
+    const locked = t.phase3.includes(k) && left > 0;
+    return `<label class="row" style="padding:6px 0"><span>${esc(label)}${locked ? `<br><span class="muted" style="font-size:12px">Ready – switches on after the learning phase (${left} day${left === 1 ? '' : 's'} to go)</span>` : ''}</span>
+      <input type="checkbox" style="width:auto" ${t.wanted[k] ? 'checked' : ''} onchange="api('/api/thermal/feature',{key:'${k}',on:this.checked}).then(loadThermal)"></label>`;
+  }).join('') + '</div>';
+  if (t.savings_offset) html += `<p style="margin-top:6px">💷 Savings nudge: aiming ${Math.abs(t.savings_offset)}° below your usual comfort. Tap 🥶 if it's too much and it goes back up.</p>`;
+  if (t.suggestions.length) {
+    html += '<h3 style="margin:12px 0 4px;font-size:15px">Suggestions</h3>' + t.suggestions.map((s) =>
+      `<div style="padding:6px 0;border-top:1px solid var(--line)"><b>Heating down ${esc(s.label)}</b> <span class="muted">· ~£${s.per_year}/yr</span>
+       <div class="muted" style="font-size:13px">${esc(s.why)} Only when the flat's actually empty.</div>
+       <button class="small" style="margin-top:4px" onclick="api('/api/thermal/suggestion',{days:'${s.days}',start:${s.from},end:${s.to},on:${!s.accepted}}).then(loadThermal)">${s.accepted ? '✓ Accepted – undo' : 'Accept'}</button></div>`).join('');
+  }
+  $('thermal').innerHTML = html;
 }
 async function loadComfort() {
   try {

@@ -20,6 +20,8 @@ TYPES = {
     "cold_home": "Flat getting cold while someone's in",
     "frost": "Frost forecast tonight",
     "lights_left": "Lights left on when everyone's out",
+    "window_open": "Window open (temperature dropping fast)",
+    "heating_fault": "Heating not warming the flat (boiler check)",
     "washing_done": "Washing finished",
     "high_use": "Unusually high electricity use",
     "tariff_change": "Energy prices changed",

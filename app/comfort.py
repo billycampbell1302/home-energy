@@ -33,6 +33,11 @@ def record(people: list, feeling: str, indoor: float | None, source: str, outdoo
     """feeling: cold | ok | warm. `people` = whose comfort this tells us about."""
     if indoor is None or feeling not in ("cold", "ok", "warm") or not people:
         return
+    from . import thermal
+    if source == "hive" and thermal.sun_skewed():
+        return                                     # thermostat reading is sun-warmed - not a real temperature
+    if feeling == "cold":
+        thermal.savings_feedback_cold()
     log = db.get_state("comfort_log", [])
     log.append({"ts": int(time.time()), "people": people, "feeling": feeling, "indoor": round(float(indoor), 1),
                 "outdoor": outdoor, "source": source, "hour": time.localtime().tm_hour})
@@ -95,5 +100,8 @@ def for_people(home: list, hour: int | None = None) -> dict:
     else:
         # Compromise: the average, but never more than 0.5° below what the coldest-feeling person wants.
         t = max(sum(temps) / len(temps), max(temps) - 0.5)
-    return {"temp": round(t * 2) / 2, "who": who, "period": period,
+    from . import thermal
+    off = thermal.savings_offset()
+    t = max(18.0, t + off) if off else t
+    return {"temp": round(t * 2) / 2, "savings_offset": off, "who": who, "period": period,
             "confident": all(est[p]["confident"] for p in who), "per_person": {p: est[p] for p in est}}
