@@ -108,9 +108,15 @@ def status(person: str) -> dict | None:
             "heading_home": heading, "eta_min": eta_minutes(d) if heading and d > HOME_RADIUS_KM else None}
 
 
-def fresh_at_home(person: str, within_min: int = 45) -> bool:
-    s = status(person)
-    return bool(s and s["at_home"] and s["age_min"] <= within_min)
+def fresh_at_home(person: str, after_ts: float = 0, within_min: int = 45) -> bool:
+    """A recent location fix at home, taken AFTER the phone dropped off the Wi-Fi (so it really is a Wi-Fi blip,
+    not an old fix from before they left)."""
+    fx = _fixes(person, max(after_ts, time.time() - within_min * 60))
+    if not fx:
+        return False
+    hlat, hlon = home_point()
+    ts, lat, lon, acc = fx[-1]
+    return ts > after_ts and km(lat, lon, hlat, hlon) <= HOME_RADIUS_KM
 
 
 def all_status() -> dict:

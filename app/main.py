@@ -730,7 +730,7 @@ async def router_hook(request: Request, token: str):
     for person, home in router.people_home().items():
         if home is None:
             continue
-        if not home and location.fresh_at_home(person):
+        if not home and location.fresh_at_home(person, router.last_seen(person)):
             continue                       # OwnTracks says they're at home - a Wi-Fi blip, not a departure
         if person not in logged:
             # First time this phone is tracked: start their routine from now (otherwise nothing shows until they move)

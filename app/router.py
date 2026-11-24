@@ -32,6 +32,11 @@ def _auto_role(name: str, mac: str) -> str:
     return ""
 
 
+def last_seen(person: str) -> float:
+    devs, roles = db.get_state("router_devices", {}), db.get_state("router_roles", {})
+    return max([devs.get(m, {}).get("last_seen", 0) for m, r in roles.items() if r == "person:" + person] or [0])
+
+
 def settling() -> bool:
     return time.time() < db.get_state("router_settle_until", 0)
 
