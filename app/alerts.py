@@ -143,6 +143,13 @@ def check(errors: dict):
         empty = sum(5 for b, p, k, h in rd if b and not p and not k and not h) / 60
         body = f"Boiler ran {boiler:.0f}h" + (f" ({empty:.0f}h with nobody home)" if empty >= 1 else "") + \
                (f" · electricity {e7:.0f} kWh · gas {g7:.0f} kWh" if e7 else "")
+        try:
+            from . import thermal
+            sr = thermal.report(7)
+            if sr["saved_total"] >= 0.05:
+                body += f" · smart heating saved ~£{sr['saved_total']:.2f}"
+        except Exception:
+            pass
         notify.send("weekly", "Your week at home", body)
         db.set_state(f"weekly_{d.date()}", True)
 

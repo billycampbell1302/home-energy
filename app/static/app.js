@@ -33,7 +33,7 @@ function showTab(tab) {
 document.querySelectorAll('nav button').forEach((b) => b.onclick = () => showTab(b.dataset.tab));
 function onTab(tab) {
   const b = {dataset: {tab}};
-  if (tab === 'summary') { loadLearning(); loadSummary(); loadReport(); loadComfort(); loadThermal(); }
+  if (tab === 'summary') { loadLearning(); loadSummary(); loadReport(); loadComfort(); loadThermal(); loadSmartReport(); }
   if (b.dataset.tab === 'history') { loadRoutine(); loadHistory(24); loadEvents(); }
   if (b.dataset.tab === 'energy') loadEnergy(30);
   if (tab === 'devices') { loadAppliances(false); loadOverview(); }
@@ -213,6 +213,29 @@ async function loadThermal() {
        <button class="small" style="margin-top:4px" onclick="api('/api/thermal/suggestion',{days:'${s.days}',start:${s.from},end:${s.to},on:${!s.accepted}}).then(loadThermal)">${s.accepted ? '✓ Accepted – undo' : 'Accept'}</button></div>`).join('');
   }
   $('thermal').innerHTML = html;
+}
+async function loadSmartReport() {
+  let r;
+  try { r = await api('/api/thermal/report?days=' + ($('sr-days')?.value || 30)); } catch (_) { return; }
+  const c = r.counts, sv = r.saved;
+  const line = (icon, label, value, note) => `<div class="row" style="padding:5px 0"><span>${icon} ${label}</span><span><b>${value}</b>${note ? ` <span class="muted" style="font-size:12px">${note}</span>` : ''}</span></div>`;
+  const gbp = (v) => v ? `~£${v.toFixed(2)}` : '';
+  let html = `<div style="font-size:26px;font-weight:700">${r.saved_total ? '~£' + r.saved_total.toFixed(2) : '£0'}</div>
+    <div class="muted" style="font-size:13px;margin-bottom:8px">estimated saved by the smart features in the last ${r.days === 365 ? 'year' : r.days + ' days'}</div>` +
+    line('🧱', 'Coasting', `${c.coasting}×`, [c.coasting_min ? c.coasting_min + ' min off early' : '', gbp(sv.coasting)].filter(Boolean).join(' · ')) +
+    line('✂️', 'Boosts trimmed', `${c.trimmed}×`, gbp(sv.trimmed)) +
+    line('🪟', 'Window pauses', `${c.window}×`, gbp(sv.window)) +
+    line('📅', 'Empty-flat turn-downs', `${c.setbacks}×`, gbp(sv.suggestions)) +
+    line('💷', 'Savings nudge', r.savings_offset ? `${r.savings_offset}°` : 'off', gbp(sv.nudge)) +
+    line('⏰', 'Early-On (comfort)', `${c.early_on}×`, c.early_on_min ? `warm ${c.early_on_min} min sooner in total` : '') +
+    line('☀️', 'Sun on thermostat', `${c.sunblock}×`, 'kept out of learning') +
+    line('🥶', 'Comfort taps', `${c.comfort_taps}`, 'what it learns from');
+  if (r.learning_left) html += `<p class="muted" style="font-size:13px">Early-On, coasting, nudges and turn-downs switch on in ${r.learning_left} day${r.learning_left === 1 ? '' : 's'} – until then, this mostly shows window pauses, trimmed boosts and learning.</p>`;
+  html += r.timeline.length ? '<h3 style="margin:12px 0 4px;font-size:15px">What it did</h3>' + r.timeline.map((t) =>
+      `<div style="padding:4px 0;border-top:1px solid var(--line)">${t.icon} ${esc(t.text)} <span class="muted" style="font-size:12px">· ${ago(t.ts)}</span></div>`).join('')
+    : '<p class="muted">Nothing yet – actions will appear here as it takes them.</p>';
+  html += '<p class="muted" style="font-size:11px;margin-top:6px">£ figures are estimates from your measured boiler use and gas price.</p>';
+  $('smart-report').innerHTML = html;
 }
 async function loadComfort() {
   try {

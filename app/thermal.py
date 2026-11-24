@@ -257,7 +257,8 @@ def act(s: dict, home_now: list, hold: bool):
         for sg in db.get_state("suggestions_accepted", []):
             if _in_window(now, sg):
                 hive.set_target(16)
-                db.add_event("smart", {"suggestion": f"flat empty {sg['label']} – heating down to 16°"})
+                db.add_event("smart", {"suggestion": f"flat empty {sg['label']} – heating down to 16°",
+                                       "setback": target - 16})
                 break
 
     if mode != "SCHEDULE" or not m.get("confident"):
@@ -277,7 +278,8 @@ def act(s: dict, home_now: list, hold: bool):
         if need and 0 < mins_left <= min(need + 5, 90):          # never more than 1½ hours early
             hive.boost(max(15, int(mins_left) + 5), next_target)
             db.set_state(key, True)
-            db.add_event("smart", {"early_on": f"started {int(mins_left)} min early to reach {next_target}° by {start:%H:%M}"})
+            db.add_event("smart", {"early_on": f"started {int(mins_left)} min early to reach {next_target}° by {start:%H:%M}",
+                                   "mins": int(mins_left)})
         return
 
     # Coasting: cooler period coming up - the flat stays within ½° for a while with heating off
@@ -286,7 +288,8 @@ def act(s: dict, home_now: list, hold: bool):
         if coast and 0 < mins_left <= min(coast, 60):
             hive.set_target(next_target)
             db.set_state(key, True)
-            db.add_event("smart", {"coasting": f"dropped to {next_target}° {int(mins_left)} min early – the flat holds its heat"})
+            db.add_event("smart", {"coasting": f"dropped to {next_target}° {int(mins_left)} min early – the flat holds its heat",
+                                   "mins": int(mins_left)})
 
 
 def detect(s: dict):
@@ -317,6 +320,8 @@ def detect(s: dict):
              and all((r.get("target_temp") or 0) - r["indoor_temp"] >= 0.8 for r in calling)
              and calling[-1]["indoor_temp"] - calling[0]["indoor_temp"] < 0.2
              and not db.get_state("window_pause"))
+    if stuck and not db.get_state("notify_fired", {}).get("heating_fault"):
+        db.add_event("smart", {"heads_up": "heating called for an hour without warming the flat – boiler check suggested"})
     notify.once("heating_fault", stuck, "heating_fault", "Heating isn't warming the flat",
                 "It's been calling for heat for an hour but the temperature hasn't risen. Check the boiler "
                 "pressure (should be about 1–1.5 bar) and the boiler display for a fault code.")
@@ -441,3 +446,64 @@ def accept_suggestion(days: str, start: int, end: int, on: bool):
         acc.append({"days": days, "from": start, "to": end, "label": f"{start:02d}:00–{end:02d}:00 on {days}"})
     db.set_state("suggestions_accepted", acc)
     db.add_event("smart", {"suggestion": ("accepted " if on else "removed ") + f"{start:02d}:00–{end:02d}:00 on {days}"})
+
+
+# ---------- Report: what the smart features did ----------
+def report(days: int = 30) -> dict:
+    """Counts, rough £ saved and a timeline. Savings are estimates from the learned model and your gas price."""
+    since = time.time() - days * 86400
+    with db._lock:
+        rows = db._conn.execute("SELECT ts, kind, detail FROM events WHERE kind IN ('smart','comfort') AND ts>=? ORDER BY ts DESC",
+                                (since,)).fetchall()
+        gas = db._conn.execute("SELECT SUM(kwh) FROM energy WHERE fuel='gas' AND kwh>0 AND ts>=?", (since,)).fetchone()[0] or 0
+    from .bright import tariff_settings
+    cost_h = _boiler_cost_per_hour()
+    duty = 0.5                       # boiler fires about half the time when holding a temperature
+    c = {"early_on": 0, "early_on_min": 0, "coasting": 0, "coasting_min": 0, "window": 0, "sunblock": 0,
+         "trimmed": 0, "setbacks": 0, "comfort_taps": 0}
+    saved = {"coasting": 0.0, "window": 0.0, "trimmed": 0.0, "suggestions": 0.0}
+    timeline = []
+    icons = {"early_on": "⏰", "coasting": "🧱", "window": "🪟", "sunblock": "☀️", "savings": "💷", "suggestion": "📅",
+             "trimmed_boost": "✂️", "heads_up": "🔧"}
+    for ts, kind, detail in rows:
+        try:
+            d = json.loads(detail) if detail else {}
+        except ValueError:
+            continue
+        if kind == "comfort":
+            if "trimmed_boost" in d:
+                c["trimmed"] += 1
+                try:
+                    a, b = [float(x.strip(" °")) for x in d["trimmed_boost"].split("→")]
+                    saved["trimmed"] += max(0, a - b) * 0.25 * cost_h * duty        # ~15 min less heating per degree
+                except ValueError:
+                    pass
+                timeline.append({"ts": ts, "icon": "✂️", "text": f"Boost trimmed {d['trimmed_boost']} for {d.get('for', '')}"})
+            elif d.get("feeling"):
+                c["comfort_taps"] += 1
+            continue
+        for key, text in d.items():
+            if key in ("mins", "setback"):
+                continue
+            if key == "early_on":
+                c["early_on"] += 1; c["early_on_min"] += d.get("mins", 0)
+            elif key == "coasting":
+                c["coasting"] += 1; c["coasting_min"] += d.get("mins", 0)
+                saved["coasting"] += d.get("mins", 0) / 60 * cost_h * duty
+            elif key == "window" and "paused" in text:
+                c["window"] += 1
+                saved["window"] += 20 / 60 * cost_h
+            elif key == "sunblock":
+                c["sunblock"] += 1
+            elif key == "suggestion" and "heating down" in text:
+                c["setbacks"] += 1
+                saved["suggestions"] += d.get("setback", 3) * 0.08 * cost_h * 3   # rough: ~8%/° over a few hours
+            timeline.append({"ts": ts, "icon": icons.get(key, "•"), "text": text[0].upper() + text[1:]})
+            break
+    off = savings_offset()
+    if off and gas:
+        saved["nudge"] = abs(off) * 0.08 * gas * tariff_settings()["gas_rate"] / 100 * 0.8   # ~8% of heating gas per °
+    m = model()
+    return {"days": days, "counts": c, "saved": {k: round(v, 2) for k, v in saved.items()},
+            "saved_total": round(sum(saved.values()), 2), "savings_offset": off, "model_confident": m.get("confident"),
+            "learning_left": max(0, math.ceil(LEARNING_DAYS - learning_days())), "timeline": timeline[:15]}

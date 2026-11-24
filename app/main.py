@@ -364,6 +364,12 @@ def thermal_info():
     return out
 
 
+@app.get("/api/thermal/report")
+def thermal_report(days: int = 30):
+    from . import thermal
+    return thermal.report(max(1, min(days, 365)))
+
+
 class Feature(BaseModel):
     key: str
     on: bool

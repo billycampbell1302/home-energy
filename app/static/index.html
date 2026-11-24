@@ -88,6 +88,12 @@
     </div>
 
     <div class="card">
+      <div class="row"><h2>Smart heating report</h2>
+        <select id="sr-days" style="width:auto" onchange="loadSmartReport()"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="365">Year</option></select></div>
+      <div id="smart-report" class="muted">Loading…</div>
+    </div>
+
+    <div class="card">
       <h2>How your flat heats</h2>
       <div id="thermal" class="muted">Loading…</div>
     </div>
