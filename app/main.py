@@ -215,7 +215,37 @@ async def appliance_loop():
 
 
 @asynccontextmanager
+def _clean_night_blips():
+    """One-off: remove overnight 'left' + 'came back' pairs under 45 minutes (router reboots), so they don't
+    teach the routine that someone goes out at 2am."""
+    if db.get_state("cleaned_night_blips"):
+        return
+    with db._lock:
+        rows = db._conn.execute("SELECT rowid, ts, detail FROM events WHERE kind='presence' ORDER BY ts").fetchall()
+    drop, last_away = [], {}
+    for rowid, ts, detail in rows:
+        try:
+            d = json.loads(detail)
+        except ValueError:
+            continue
+        h = time.localtime(ts).tm_hour
+        if not d["home"] and (h >= 23 or h < 7):
+            last_away[d["person"]] = (rowid, ts)
+        elif d["home"] and d["person"] in last_away:
+            rid, t0 = last_away.pop(d["person"])
+            if ts - t0 < 45 * 60:
+                drop += [rid, rowid]
+    with db._lock:
+        db._conn.executemany("DELETE FROM events WHERE rowid=?", [(r,) for r in drop])
+        db._conn.commit()
+    db.set_state("cleaned_night_blips", len(drop))
+
+
 async def lifespan(app):
+    try:
+        _clean_night_blips()
+    except Exception as e:
+        log.warning("cleanup: %s", e)
     tasks = [asyncio.create_task(poll_loop()), asyncio.create_task(bright_loop()), asyncio.create_task(appliance_loop())]
     yield
     for t in tasks:
@@ -317,6 +347,7 @@ def status():
         "devices": all_devices(),
         "weather": {k: v for k, v in (w or {}).items() if k != "hourly"} if w else None,
         "presence": presence(),
+        "locations": __import__("app.location", fromlist=["x"]).all_status(),
         "lights_signal": lights_signal(all_devices(), presence()),
         "hold": bool(db.get_state("hold", False)),
         "errors": _errors,
@@ -611,16 +642,26 @@ def set_hold(h: Hold):
 
 
 # ---------------- presence ----------------
-def _set_presence(person: str, state: str):
+def _set_presence(person: str, state: str, force: bool = False):
     match = next((p for p in PEOPLE if p.lower() == person.lower()), None)
     if not match:
         raise HTTPException(404, f"Unknown person. Use one of: {', '.join(PEOPLE)}")
     home = state.lower() in ("home", "arrive", "arrived", "in", "1", "true")
     p = presence()
-    if p[match]["home"] != home:
-        p[match] = {"home": home, "since": int(time.time())}
+    if p[match]["home"] != home or force:
+        changed = p[match]["home"] != home
+        if changed or match not in db.get_state("presence", {}):
+            p[match] = {"home": home, "since": int(time.time())}
         db.set_state("presence", p)
         db.add_event("presence", {"person": match, "home": home})
+        if home and changed:
+            try:
+                from . import location
+                location.learn_arrival(match)
+            except Exception:
+                pass
+        if not changed:
+            return p
         try:
             from . import notify
             notify.send("arrivals", f"{match} {'arrived home' if home else 'left'}", time.strftime("%H:%M"))
@@ -638,6 +679,23 @@ def presence_hook(token: str, person: str, state: str):
         raise HTTPException(403, "Bad token")
     _set_presence(person, state)
     return {"ok": True}
+
+
+@app.post("/hook/owntracks")
+async def owntracks_hook(request: Request, token: str, person: str):
+    """The OwnTracks app on each iPhone posts its location here (HTTP mode)."""
+    from . import location
+    if not hmac.compare_digest(token, webhook_token()):
+        raise HTTPException(403, "Bad token")
+    match = next((p for p in PEOPLE if p.lower() == person.lower()), None)
+    if not match:
+        raise HTTPException(404, "Unknown person")
+    try:
+        msg = json.loads((await request.body()) or b"{}")
+    except ValueError:
+        raise HTTPException(400, "Bad JSON")
+    location.record(match, msg)
+    return JSONResponse([])
 
 
 @app.get("/hook/router/script")
@@ -659,11 +717,23 @@ async def router_hook(request: Request, token: str):
         body = json.loads((await request.body()) or b"{}")
     except ValueError:
         raise HTTPException(400, "Bad JSON")
-    router.report(body.get("clients", []))
+    up = body.get("uptime")
+    router.report(body.get("clients", []), int(up) if isinstance(up, (int, float)) else None)
     # Phones the router knows about decide that person's presence (the Wi-Fi shortcuts become a backup).
+    from . import location
     current = presence()
+    logged = db.get_state("presence_logged", [])
     for person, home in router.people_home().items():
-        if home is not None and current.get(person, {}).get("home") != home:
+        if home is None:
+            continue
+        if not home and location.fresh_at_home(person):
+            continue                       # OwnTracks says they're at home - a Wi-Fi blip, not a departure
+        if person not in logged:
+            # First time this phone is tracked: start their routine from now (otherwise nothing shows until they move)
+            _set_presence(person, "home" if home else "away", force=True)
+            logged.append(person)
+            db.set_state("presence_logged", logged)
+        elif current.get(person, {}).get("home") != home:
             _set_presence(person, "home" if home else "away")
     return {"ok": True}
 
@@ -989,6 +1059,7 @@ def setup_info():
         "smartthings_configured": smartthings.is_configured(),
         "connectlife_configured": __import__("app.connectlife", fromlist=["x"]).is_configured(),
         "people": PEOPLE,
+        "owntracks": {p: f"{PUBLIC_URL}/hook/owntracks?token={tok}&person={p}" for p in PEOPLE},
         "webhooks": {
             p: {
                 "arrive": f"{PUBLIC_URL}/hook/presence?token={tok}&person={p}&state=home",

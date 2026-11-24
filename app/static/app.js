@@ -89,7 +89,7 @@ function render() {
   $('errors').innerHTML = errs.length ? `<div class="card err">${errs.map(([k, v]) => `<b>${esc(k)}</b>: ${esc(v)}`).join('<br>')}</div>` : '';
 
   $('people').innerHTML = Object.entries(S.presence).map(([name, p]) =>
-    `<button class="pill ${p.home ? 'home' : 'away'}" onclick="togglePerson('${esc(name)}', ${!p.home})">${esc(name)} · ${p.home ? 'home' : 'out'} <span class="muted">${ago(p.since)}</span></button>`).join('');
+    `<button class="pill ${p.home ? 'home' : 'away'}" onclick="togglePerson('${esc(name)}', ${!p.home})">${esc(name)} · ${p.home ? 'home' : 'out'} <span class="muted">${ago(p.since)}</span>${whereabouts(name, p)}</button>`).join('');
   $('hold').textContent = S.hold ? 'On' : 'Off';
   $('hold').className = S.hold ? 'primary' : '';
   if (S.hold) $('people').innerHTML += '<span class="pill home">Guests staying</span>';
@@ -336,6 +336,11 @@ async function loadEvents() {
 }
 
 // ---------- setup ----------
+function whereabouts(name, p) {
+  const l = (S.locations || {})[name];
+  if (p.home || !l || l.at_home || l.age_min > 120) return '';
+  return l.eta_min ? ` <span class="muted">· ${l.miles} mi · home in ~${l.eta_min} min</span>` : ` <span class="muted">· ${l.miles} mi away</span>`;
+}
 async function loadSetup() {
   const s = await api('/api/setup');
   $('hive-done').style.display = s.hive_configured ? 'block' : 'none';
@@ -349,6 +354,8 @@ async function loadSetup() {
   $('tuya-done').style.display = s.tuya_configured ? 'block' : 'none';
   $('hooks').innerHTML = Object.entries(s.webhooks).map(([p, u]) =>
     `<b>${esc(p)}</b><div class="muted">Arrive</div><div class="url">${esc(u.arrive)}</div><div class="muted">Leave</div><div class="url">${esc(u.leave)}</div>`).join('');
+  if ($('owntracks')) $('owntracks').innerHTML = Object.entries(s.owntracks).map(([p, u]) =>
+    `<b>${esc(p)}'s iPhone</b><div class="url">${esc(u)}</div>`).join('');
 }
 
 async function loadVersion() {

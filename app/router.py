@@ -14,6 +14,8 @@ from . import db
 from .config import PEOPLE
 
 AWAY_GRACE = 10 * 60          # phone must be gone this long before the person counts as out
+NIGHT_GRACE = 30 * 60         # longer overnight (23:00-07:00) - sleeping phones and the nightly router reboot
+SETTLE = 20 * 60              # after a router reboot / gap in reports, nobody can be marked as "left"
 STREAM_BPS = 250_000          # ~2 Mbit/s sustained = video streaming (idle Fire Stick is a few KB/s)
 STREAM_HOLD = 3 * 60          # keep "streaming" for a few minutes over short pauses/buffering
 KIDS_BPS = 25_000             # ~200 kbit/s: a tablet/console actually being used (videos, online games)
@@ -30,9 +32,18 @@ def _auto_role(name: str, mac: str) -> str:
     return ""
 
 
-def report(clients: list) -> dict:
+def settling() -> bool:
+    return time.time() < db.get_state("router_settle_until", 0)
+
+
+def report(clients: list, uptime: int | None = None) -> dict:
     """clients: [{"mac","name","ip","rx","tx"}] - cumulative byte counters per Wi-Fi association."""
     now = time.time()
+    last = db.get_state("router_last_report", 0)
+    if (uptime is not None and uptime < SETTLE) or (last and now - last > 3 * 60):
+        if not settling():
+            db.add_event("router", {"note": "router restarted or stopped reporting – departures ignored for 20 min"})
+        db.set_state("router_settle_until", now + SETTLE)
     devs = db.get_state("router_devices", {})
     roles = db.get_state("router_roles", {})
     for c in clients:
@@ -73,13 +84,17 @@ def people_home() -> dict:
     now = time.time()
     devs, roles = db.get_state("router_devices", {}), db.get_state("router_roles", {})
     out = {p: None for p in PEOPLE}
+    hour = time.localtime().tm_hour
+    grace = NIGHT_GRACE if hour >= 23 or hour < 7 else AWAY_GRACE
     for mac, role in roles.items():
         if not role.startswith("person:"):
             continue
         p = role.split(":", 1)[1]
         seen = devs.get(mac, {}).get("last_seen", 0)
-        home = now - seen < AWAY_GRACE
+        home = now - seen < grace
         out[p] = bool(out[p]) or home
+    if settling():   # just rebooted: phones still reconnecting - only arrivals count
+        out = {p: (True if v else None) for p, v in out.items()}
     return out
 
 
@@ -135,7 +150,8 @@ JSON=$(echo "$OUT" | awk -v leases="$LEASES" '
   BEGIN { while ((getline l < leases) > 0) { split(l, f, " "); name[tolower(f[2])] = f[4]; ip[tolower(f[2])] = f[3] } }
   NF == 3 { m = tolower($1); n = (m in name) ? name[m] : ""; if (n == "*") n = "";
             gsub(/"/, "", n); printf "%s{\"mac\":\"%s\",\"name\":\"%s\",\"ip\":\"%s\",\"rx\":%s,\"tx\":%s}", sep, m, n, ip[m], $2, $3; sep = "," }')
-uclient-fetch -q -T 20 -O /dev/null --post-data="{\"clients\":[$JSON]}" "$URL" 2>/dev/null
+UP=$(cut -d. -f1 /proc/uptime)
+uclient-fetch -q -T 20 -O /dev/null --post-data="{\"uptime\":$UP,\"clients\":[$JSON]}" "$URL" 2>/dev/null
 """
 
 
