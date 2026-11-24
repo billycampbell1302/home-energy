@@ -1,7 +1,10 @@
 """Kitchen dehumidifier (Smart Life): dry clothes on the cheap rate - and dry by the time you need them.
 
-  Learns          How long a load takes to dry (from each run: switched on → humidity levels off), and what time
-                  you usually take the clothes (when someone switches it off in the morning).
+  Loads           It's left on most of the time, so a load of washing is spotted from the humidity jumping up
+                  (wet clothes hung out), not from it being switched on.
+  Learns          How long a load takes to dry (humidity jump → back down and level), and when the clothes are
+                  needed: 30 min before the first person usually leaves in the morning (from the router),
+                  separately for weekdays and weekends. Default 07:00 until it knows.
   Cheap-rate      Switched on in the evening? It works out the latest safe start: cheap rate if that leaves
                   enough time (plus a 20% margin) to be dry by collection time, otherwise earlier - or straight away.
                   Switch it on again within 10 minutes to override for tonight.
@@ -48,18 +51,45 @@ def _next_at(now: datetime, minutes: float) -> datetime:
 
 
 # ---------- what it has learned ----------
-def learned() -> dict:
+def _first_departures(weekend: bool) -> list:
+    """Hour of the first phone leaving each morning (05:00–11:00) over the last 4 weeks."""
+    import json
+    with db._lock:
+        rows = db._conn.execute("SELECT ts, detail FROM events WHERE kind='presence' AND ts>=? ORDER BY ts",
+                                (time.time() - 28 * 86400,)).fetchall()
+    first = {}
+    for ts, detail in rows:
+        try:
+            dd = json.loads(detail)
+        except (TypeError, ValueError):
+            continue
+        t = datetime.fromtimestamp(ts)
+        if dd.get("home") is False and 5 <= t.hour < 11 and (t.weekday() >= 5) == weekend:
+            first.setdefault(t.date(), t.hour + t.minute / 60)
+    return list(first.values())
+
+
+def learned(when: datetime | None = None) -> dict:
     runs = [r["hours"] for r in db.get_state("dehum_runs", []) if r.get("clothes", True)][-10:]
-    picks = db.get_state("dehum_collect", [])[-10:]
     hours = round(statistics.median(runs), 1) if len(runs) >= 2 else DEFAULT_HOURS
-    ready = statistics.median(picks) - 0.25 if len(picks) >= 3 else DEFAULT_READY   # 15 min before you usually take them
-    return {"dry_hours": hours, "loads": len(runs), "ready_by": round(ready, 2),
-            "ready_by_text": f"{int(ready):02d}:{int(round(ready % 1 * 60)) % 60:02d}", "collect_samples": len(picks)}
+    when = when or datetime.now()
+    weekend = (when + timedelta(hours=12)).weekday() >= 5          # the morning the clothes are for
+    leaves = _first_departures(weekend) or ([] if not weekend else [])
+    picks = db.get_state("dehum_collect", [])[-10:]                  # if it does get switched off in the morning
+    if len(leaves) >= 3:
+        ready, why = statistics.median(leaves) - 0.5, f"30 min before the first of you usually leaves{' at weekends' if weekend else ''}"
+    elif len(picks) >= 3:
+        ready, why = statistics.median(picks) - 0.25, "15 min before you usually switch it off"
+    else:
+        ready, why = DEFAULT_READY, "07:00 until it learns when you leave"
+    ready = min(max(ready, 5.5), 10.0)
+    return {"dry_hours": hours, "loads": len(runs), "ready_by": round(ready, 2), "why": why,
+            "ready_by_text": f"{int(ready):02d}:{int(round(ready % 1 * 60)) % 60:02d}", "collect_samples": len(leaves) or len(picks)}
 
 
 def _plan(now: datetime, night_start: str) -> dict:
     """When to start an evening load so it's dry by collection time, using the cheap rate where possible."""
-    L = learned()
+    L = learned(now)
     ready = _next_at(now, L["ready_by"] * 60)
     latest = ready - timedelta(hours=L["dry_hours"] * MARGIN)
     cheap = _next_at(now, _mins(night_start))
@@ -97,90 +127,113 @@ def check():
         switched_on = d["on"] and not s.get("was_on")
         switched_off = not d["on"] and s.get("was_on")
 
-        # Someone switched it off in the morning after a run = when you take the clothes
-        if switched_off and ts - (s.get("off_by_us") or 0) > 600 and 4 <= now.hour < 12 and s.get("run_start"):
+        # If someone does switch it off in the morning, that's when the clothes were taken
+        if switched_off and ts - (s.get("off_by_us") or 0) > 600 and 4 <= now.hour < 12:
             picks = db.get_state("dehum_collect", [])
             db.set_state("dehum_collect", (picks + [round(now.hour + now.minute / 60, 2)])[-20:])
 
+        # A load of washing hung out: humidity jumps 8+ points above where it's been sitting
+        load = s.get("load")
+        if not load and len(hist) >= 12 and d.get("humidity") is not None:
+            before = [h for t, h in hist if ts - t > 75 * 60]
+            base = statistics.median(before) if len(before) >= 6 else None
+            last40 = [h for t, h in hist if ts - t <= 40 * 60]
+            # Sustained for 40 min - cooking steam or the kettle clears quicker than a rack of wet washing
+            if (base is not None and d["humidity"] >= base + 8 and d["humidity"] >= (d.get("set_humidity") or 50) + 5
+                    and len(last40) >= 7 and min(last40) >= base + 6):
+                onset = next((t for t, h in hist if ts - t <= 75 * 60 and h >= base + 2), ts)
+                load = s["load"] = {"onset": onset, "base": base, "was_on": bool(s.get("was_on") or d["on"])}
+                s.update(dry=False, damp=False, late_told=False)
+                db.add_event("smart", {"dehumidifier": f"washing spotted – humidity up from {base:.0f}% to {d['humidity']:.0f}%"})
+        if switched_on and not load:
+            # Switched on from off: treat it as a load too (in case the humidity jump was missed)
+            load = s["load"] = {"onset": ts, "base": d.get("set_humidity") or 50, "was_on": False}
+            s.update(dry=False, damp=False, late_told=False)
+
         if switched_on and s.get("deferred_at") and ts - s["deferred_at"] < 600:
             # Switched back on within 10 minutes of us pausing it → dry now, leave it alone tonight
-            s.update(deferred=False, override_day=str(now.date()), run_start=ts, dry=False, ours=False, damp=False)
+            s.update(deferred=False, override_day=str(now.date()), ours=False)
             db.add_event("smart", {"dehumidifier": f"{name} switched back on – drying now as asked"})
-        elif (switched_on and f.get("dehum_cheap") and not night and _evening(now, night_start)
+        elif (load and not load.get("planned") and f.get("dehum_cheap") and not night and _evening(now, night_start)
               and s.get("override_day") != str(now.date())):
+            load["planned"] = True
             p = _plan(now, night_start)
             if p["start"] - now > timedelta(minutes=20):
-                _off(d, s)
-                s.update(deferred=True, deferred_at=ts, start_at=int(p["start"].timestamp()), damp=False)
+                if d["on"]:
+                    _off(d, s)
+                s.update(deferred=True, deferred_at=ts, start_at=int(p["start"].timestamp()))
                 cheap_h = max(0.0, min(p["hours"], (p["ready"] - p["start"]).total_seconds() / 3600))
                 saving = DEFAULT_KW * cheap_h * (tariff["day_rate"] - tariff["night_rate"])
-                notify.send("dehumidifier", f"{name} will start at {p['start']:%H:%M}",
+                notify.send("dehumidifier", f"Washing out – {name} will start at {p['start']:%H:%M}",
                             f"Loads take about {p['hours']:g} h, so it'll be dry by about {p['ready']:%H:%M}"
                             f"{f' and save ~{saving:.0f}p on the cheap rate' if saving >= 1 else ''}. "
                             "Need it sooner? Switch it on again within 10 minutes.")
                 db.add_event("smart", {"dehumidifier": f"{name} paused until {p['start']:%H:%M} – dry by {p['ready']:%H:%M}"})
-            else:
-                s.update(run_start=ts, dry=False, ours=False, damp=False)    # needs to start now to be dry in time
-        elif switched_on:
-            s.update(run_start=ts, dry=False, ours=False, damp=False)
 
         # Planned start time reached
         if s.get("deferred") and ts >= s.get("start_at", 0):
             tuya.command(d["id"], "on")
             d["on"] = True
-            s.update(deferred=False, run_start=ts, dry=False, ours=True, late_told=False)
+            s.update(deferred=False, ours=True)
+            if s.get("load"):
+                s["load"]["started"] = ts
             db.add_event("smart", {"dehumidifier": f"{name} started{' on the cheap rate' if night else ''}"})
 
         # Damp watch: 65%+ for 2 hours with it off
         damp = (f.get("dehum_damp") and not d["on"] and len(hist) >= 20 and ts - hist[0][0] >= 2 * 3600 - 600
                 and all(h >= 65 for t, h in hist if ts - t <= 2 * 3600))
-        if damp and not s.get("deferred"):
+        if damp and not s.get("deferred") and not s.get("load"):
             if night:
                 tuya.command(d["id"], "on")
                 d["on"] = True
-                s.update(run_start=ts, dry=False, ours=True, damp=True)
+                s.update(ours=True, damp=True, load={"onset": ts, "base": 55, "was_on": False, "started": ts})
                 db.add_event("smart", {"dehumidifier": f"humidity {hist[-1][1]:.0f}% for 2 hours – {name} started (cheap rate)"})
             else:
-                s.update(deferred=True, deferred_at=0, start_at=int(_next_at(now, _mins(night_start)).timestamp()), damp=True)
+                s.update(deferred=True, deferred_at=0, start_at=int(_next_at(now, _mins(night_start)).timestamp()), damp=True,
+                         load={"onset": ts, "base": 55, "was_on": False, "planned": True})
                 notify.send("dehumidifier", f"Damp in the flat – {hist[-1][1]:.0f}% humidity",
                             f"It's been 65%+ for 2 hours (condensation / mould risk). {name} will start at {night_start}, "
                             "or switch it on now if you'd rather.")
 
-        # Clothes dry: running 90+ min, humidity flat (±1%) for 45 min and near the setting
-        if d["on"] and s.get("run_start") and not s.get("dry") and ts - s["run_start"] >= 90 * 60:
+        # Clothes dry: humidity back down near where it was and not moving (within 1%) for 45 min
+        load = s.get("load")
+        if load and d["on"] and not s.get("deferred") and ts - load.get("started", load["onset"]) >= 60 * 60:
             last45 = [h for t, h in hist if ts - t <= 45 * 60]
-            target = d.get("set_humidity") or 50
-            if len(last45) >= 8 and max(last45) - min(last45) <= 2 and last45[-1] <= target + 8:
-                s["dry"] = True
-                hours = (ts - s["run_start"]) / 3600 - 0.6        # it levelled off ~35 min before we could be sure
-                runs = db.get_state("dehum_runs", [])
-                db.set_state("dehum_runs", (runs + [{"ts": ts, "hours": round(hours, 2), "clothes": not s.get("damp")}])[-30:])
-                if s.get("ours"):
-                    _off(d, s)
-                    db.add_event("smart", {"dehumidifier": f"clothes dry after {hours:.1f} h – {name} switched off",
-                                           "cheap_hours": round(hours, 2) if night else 0})
-                    notify.send("washing_done", "Clothes are dry", f"Took {hours:.1f} hours. {name} has switched off.")
+            floor = max(load["base"], d.get("set_humidity") or 50)
+            if len(last45) >= 8 and max(last45) - min(last45) <= 1 and last45[-1] <= floor + 4:
+                start = load.get("started", load["onset"])
+                hours = max(0.5, (ts - start) / 3600 - 0.6)          # it levelled off ~35 min before we could be sure
+                if not s.get("damp"):
+                    runs = db.get_state("dehum_runs", [])
+                    db.set_state("dehum_runs", (runs + [{"ts": ts, "hours": round(hours, 2), "clothes": True}])[-30:])
+                if s.get("ours") and not load.get("was_on"):
+                    _off(d, s)                                        # it was off before - put it back off
+                    after = f" {name} has switched off."
                 else:
-                    db.add_event("smart", {"dehumidifier": f"clothes look dry after {hours:.1f} h"})
-                    notify.send("washing_done", "Clothes look dry", f"Took {hours:.1f} hours – humidity has levelled off at {last45[-1]:.0f}%.")
+                    after = f" {name} is back to keeping the flat at {d.get('set_humidity') or 50:.0f}%."
+                db.add_event("smart", {"dehumidifier": f"clothes dry after {hours:.1f} h", "cheap_hours": round(hours, 2) if night and s.get("ours") else 0})
+                notify.send("washing_done", "Clothes are dry", f"Took {hours:.1f} hours.{after}")
+                s.update(load=None, ours=False, dry=True)
 
         # Collection time and still not dry → say how much longer
-        L = learned()
-        if (d["on"] and s.get("run_start") and not s.get("dry") and not s.get("damp") and not s.get("late_told")
-                and abs(now.hour + now.minute / 60 - L["ready_by"]) < 0.1):
-            left = max(0.25, L["dry_hours"] - (ts - s["run_start"]) / 3600)
+        load = s.get("load")
+        L = learned(now)
+        if load and not s.get("damp") and not load.get("late_told") and abs(now.hour + now.minute / 60 - L["ready_by"]) < 0.1:
+            left = max(0.25, L["dry_hours"] - (ts - load.get("started", load["onset"])) / 3600)
             notify.send("washing_done", "Clothes not quite dry yet",
                         f"Loads usually take about {L['dry_hours']:g} h – roughly {left * 60:.0f} more minutes. It'll keep going.")
-            s["late_told"] = True
+            load["late_told"] = True
 
         # Cheap rate over and still going: log the cheap hours for the report
-        if not night and s.get("ours") and s.get("run_start") and not s.get("dry"):
-            hours = min((ts - s["run_start"]) / 3600, 7)
+        if not night and s.get("ours") and load:
+            hours = min((ts - load.get("started", load["onset"])) / 3600, 7)
             db.add_event("smart", {"dehumidifier": f"{name} ran {hours:.1f} h on the cheap rate – still going", "cheap_hours": round(hours, 2)})
             s["ours"] = False
 
-        if switched_off and not s.get("deferred"):
-            s.update(run_start=None, ours=False)
+        # Forget a load nobody's drying (switched off by someone and not waiting for us) after 12 hours
+        if load and not d["on"] and not s.get("deferred") and ts - load["onset"] > 12 * 3600:
+            s["load"] = None
+
         s["was_on"] = d["on"]
     db.set_state("dehum", states)
 
