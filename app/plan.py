@@ -216,7 +216,14 @@ def day_plan(day: datetime, occ: dict, temps: dict) -> dict:
     hive_hours = sum((b["end"] - b["start"]) / 60 for b in hive_blocks if b["target"] > LOW + 0.5)
     known = sum(b["end"] - b["start"] for b in blocks if b["state"] != "nodata") / 60
     lows = [v for k, v in temps.items() if k.startswith(day.strftime("%Y-%m-%d"))]
+    from .daytypes import excluded_set
+    skip = excluded_set()
+    weekend = wd >= 5
+    n_wake = sum(1 for w in db.get_state("wake_log", []) if w["weekend"] == weekend and w["date"] not in skip)
+    wake_info = {"time": _fmt(wake * 60) if wake is not None else None, "minutes": int(wake * 60) if wake is not None else 390,
+                 "samples": n_wake, "group": "weekends" if weekend else "weekdays", "learned": wake is not None}
     return {"date": day.strftime("%Y-%m-%d"), "label": day.strftime("%a %d"), "plural": plural, "blocks": blocks, "special": special,
+            "wake": wake_info,
             "hive": hive_blocks, "warm_hours": round(warm_hours, 1), "hive_hours": round(hive_hours, 1),
             "days_seen": len(seen_days), "known_hours": round(known, 1), "people": list(PEOPLE),
             "outdoor_min": min(lows) if lows else None, "outdoor_max": max(lows) if lows else None}
@@ -263,6 +270,10 @@ def week() -> dict:
     days = [day_plan(today + timedelta(days=i), occ, temps) for i in range(7)]
     for d in days:
         d["seen"] = len(set().union(*[occ["days"].get((datetime.fromisoformat(d["date"]).weekday(), i), set()) for i in range(48)]))
-    return {"days": days, "calibration": calibration(occ, temps), "learning_days": round(thermal.learning_days(), 1), "learning_target": thermal.LEARNING_DAYS,
+    from .daytypes import excluded_set
+    skip = excluded_set()
+    mornings = [{"date": w["date"], "time": _fmt(w["hour"] * 60), "why": w.get("why", ""), "weekend": w["weekend"],
+                 "left_out": w["date"] in skip} for w in db.get_state("wake_log", [])[-10:]][::-1]
+    return {"days": days, "mornings": mornings, "calibration": calibration(occ, temps), "learning_days": round(thermal.learning_days(), 1), "learning_target": thermal.LEARNING_DAYS,
             "model_confident": bool(thermal.model().get("confident")), "low": LOW,
             "active": thermal.learning_done(), "recent": __import__("app.daytypes", fromlist=["x"]).recent()}

@@ -284,6 +284,10 @@ function planBar(blocks, hive, h) {
   const seg = (b) => `<div style="position:absolute;left:${b.start / 14.4}%;width:${(b.end - b.start) / 14.4}%;top:0;bottom:0;background:${col(b)}"></div>`;
   return `<div style="position:relative;height:${h}px;border-radius:5px;overflow:hidden;background:#1b1f27">${blocks.map(seg).join('')}</div>`;
 }
+function wakeMark(w, h) {
+  if (!w) return '';
+  return `<div title="Kids usually up ${w.time || ''}" style="position:absolute;left:${w.minutes / 14.4}%;top:-2px;height:${h + 4}px;width:2px;background:${w.learned ? '#7cc4ff' : '#7cc4ff66'};border-radius:1px"></div>`;
+}
 function planRow(label, bar, sub) {
   return `<div style="display:flex;align-items:center;gap:6px;margin:2px 0"><div style="width:48px;font-size:11px" class="muted">${label}</div><div style="flex:1">${bar}</div>${sub !== undefined ? `<div style="width:30px;text-align:right;font-size:11px">${sub}</div>` : ''}</div>`;
 }
@@ -298,9 +302,9 @@ async function loadPlan() {
   const ticks = '<div class="row muted" style="font-size:11px;margin:0 0 2px 54px"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>';
   $('plan-week').innerHTML = ticks + PLAN.days.map((d, i) =>
     `<div style="margin:8px 0;cursor:pointer" onclick="planDay=${i};renderPlanDay()">
-      ${planRow('<b style="color:var(--text)">' + esc(d.label) + '</b><br>Plan', planBar(d.blocks, false, 14), calibDot(d.seen >= 3 ? 'ok' : d.seen ? 'learning' : 'none') + d.seen)}
+      ${planRow('<b style="color:var(--text)">' + esc(d.label) + '</b><br>Plan', `<div style="position:relative">${planBar(d.blocks, false, 14)}${wakeMark(d.wake, 14)}</div>`, calibDot(d.seen >= 3 ? 'ok' : d.seen ? 'learning' : 'none') + d.seen)}
       ${planRow('Hive', planBar(d.hive, true, 6), '')}</div>`).join('') +
-    '<div class="muted" style="font-size:12px;margin-top:6px"><b>Plan</b> = what the app would do · <b>Hive</b> = your Hive schedule right now<br><span style="color:#ff7a2f">■</span> heating on, 20.5° or warmer &nbsp; <span style="color:#f0a04b">■</span> heating on, below 20.5° &nbsp; <span style="color:#4a5060">■</span> off – kept at 16° (Hive: its own low/off setting) &nbsp; ▨ no data yet · number = days of data for that weekday</div>';
+    '<div class="muted" style="font-size:12px;margin-top:6px"><span style="color:#7cc4ff">┃</span> kids usually up (faint = not learned yet, 06:30 assumed) · <b>Plan</b> = what the app would do · <b>Hive</b> = your Hive schedule right now<br><span style="color:#ff7a2f">■</span> heating on, 20.5° or warmer &nbsp; <span style="color:#f0a04b">■</span> heating on, below 20.5° &nbsp; <span style="color:#4a5060">■</span> off – kept at 16° (Hive: its own low/off setting) &nbsp; ▨ no data yet · number = days of data for that weekday</div>';
   renderPlanDay();
   renderRecent();
   renderCalib();
@@ -353,7 +357,11 @@ function renderPlanDay() {
   const d = PLAN.days[planDay];
   $('plan-days').innerHTML = PLAN.days.map((x, i) => `<button class="small ${i === planDay ? 'primary' : ''}" onclick="planDay=${i};renderPlanDay()">${esc(x.label.split(' ')[0])}</button>`).join('');
   let html = `<div class="row"><b>${esc(d.label)}</b><span class="muted" style="font-size:13px">${d.outdoor_min != null ? `${Math.round(d.outdoor_min)}° to ${Math.round(d.outdoor_max)}° outside` : ''}</span></div>
-    <div style="margin:8px 0">${planRow('Plan', planBar(d.blocks, false, 20))}${planRow('Hive', planBar(d.hive, true, 20))}</div>
+    <div style="margin:8px 0">${planRow('Plan', `<div style="position:relative">${planBar(d.blocks, false, 20)}${wakeMark(d.wake, 20)}</div>`)}${planRow('Hive', planBar(d.hive, true, 20))}</div>
+    <div style="font-size:14px;margin:6px 0;padding:8px;border-radius:8px;background:#16263a">🧒 ${d.wake.learned
+      ? `Kids usually up by <b>${d.wake.time}</b> on ${d.wake.group} (from ${d.wake.samples} mornings) – the plan has the flat warm by then`
+      : `Kids' wake-up time: <b>still learning</b> (${d.wake.samples} of 3 ${d.wake.group} mornings seen) – assuming 06:30 until then`}
+      ${PLAN.mornings.length ? `<details style="margin-top:4px"><summary class="muted" style="font-size:12px">Recent mornings</summary><div class="muted" style="font-size:12px">${PLAN.mornings.map((m) => `${esc(m.date.slice(5))} ${m.time} – ${esc(m.why)}${m.left_out ? ' (left out)' : ''}`).join('<br>')}</div></details>` : ''}</div>
     <div style="font-size:13px;margin-bottom:6px"><b>Your Hive schedule now:</b> ${d.hive.length ? hiveText(d.hive) : 'not available'}</div>`;
   if (d.special) html += `<p style="margin:4px 0">🎉 ${esc(d.special)}</p>`;
   if (!d.days_seen) {
