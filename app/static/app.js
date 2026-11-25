@@ -43,7 +43,7 @@ function onTab(tab) {
   if (tab === 'setup') {
     if ($('share-btns')) $('share-btns').innerHTML = Object.keys(S.presence || {}).filter((p) => { try { return p !== localStorage.getItem('me'); } catch (_) { return true; } })
       .map((p) => `<button class="small primary" onclick="shareWith('${esc(p)}')">Share with ${esc(p)}</button>`).join('');
-    fillFix(); loadSetup(); loadVersion(); loadTariffForm(); loadRouter(); loadPush();
+    fillFix(); loadSetup(); loadVersion(); loadTariffForm(); loadRouter(); loadPush(); loadThermal();
     setTimeout(settingStatuses, 1500);
   }
 }
@@ -58,6 +58,7 @@ function settingStatuses() {
   set('own', false, 'Optional'); set('hooks', false, 'Optional');
   const pushOn = 'Notification' in window && Notification.permission === 'granted';
   set('push', pushOn, pushOn ? 'On' : 'Off');
+  set('features', true, '');
   set('share', true, ''); set('fix', true, ''); set('diag', true, ''); set('inst', true, '');
   set('upd', true, (($('version') || {}).textContent || '').replace('Version ', ''));
 }
@@ -67,6 +68,16 @@ async function load() {
   applySimple();
   if (isSimple()) loadSimple();
   S = await api('/api/status');
+  // The server decides simple vs full: only a browser that came in through a shared link is simple.
+  try {
+    if (S.shared_as) { localStorage.setItem('me', S.shared_as); if (sessionStorage.getItem('full') !== '1') localStorage.setItem('simple', '1'); }
+    else if (localStorage.getItem('simple') === '1' && !window._keepSimple) {
+      localStorage.removeItem('simple');
+      if (localStorage.getItem('me') && localStorage.getItem('me') !== Object.keys(S.presence || {})[0]) localStorage.removeItem('me');
+    }
+  } catch (_) {}
+  applySimple();
+  if (isSimple()) loadSimple();
   render();
   loadComfort();
   loadThermal();
@@ -79,15 +90,17 @@ async function load() {
   }
 }
 async function loadToday() {
-  // Home "Today": next heating change, kids' usual wake time, washing / dehumidifier in one glance
+  // Home "Today": the things worth knowing at a glance
   let d;
   try { d = await api('/api/simple'); } catch (_) { return; }
-  const rows = [];
-  if (d.next) rows.push(['🔥', d.next]);
-  (d.schedule || []).filter((b) => b.now).forEach((b) => rows.push(['🔥', `Heating period now: ${b.from}–${b.to} at ${b.temp}°`]));
+  const rows = [], alerts = [];
+  (d.schedule || []).filter((b) => b.now).forEach((b) => rows.push(['🔥', `Heating period now until ${b.to} (${b.temp}°)`]));
+  if (d.next) rows.push(['⏭️', d.next]);
+  if (d.kids_up) rows.push(['🧒', `Kids usually up by ${d.kids_up}`]);
   (d.appliances || []).filter((a) => a.running).forEach((a) => rows.push(['🧺', `${a.name}: ${a.text}`]));
-  const alerts = [];
   (d.dehumidifiers || []).forEach((x) => (x.alert ? alerts : rows).push(['💧', `${x.name}: ${x.text}`]));
+  if ((d.lights_on || []).length) rows.push(['💡', `On: ${d.lights_on.join(', ')}`]);
+  if (d.learning && !d.learning.done) rows.push(['📚', `Learning day ${Math.min(d.learning.day, d.learning.of)} of ${d.learning.of} – smart heating starts after`]);
   $('today-card').style.display = rows.length ? 'block' : 'none';
   $('today').innerHTML = rows.map(([i, t]) => `<div class="line"><span>${i}</span><span>${esc(t)}</span></div>`).join('');
   $('attention').innerHTML = alerts.map(([i, t]) => `<div class="banner">${i} ${esc(t)}</div>`).join('');
@@ -265,7 +278,7 @@ async function loadSimple() {
   $('s-who').innerHTML = Object.entries(d.who || {}).map(([p, h]) => `<span class="pill ${h ? 'home' : 'away'}">${esc(p)} · ${h ? 'home' : 'out'}</span>`).join('');
   if ($('simple-push')) $('simple-push').style.display = ('Notification' in window && Notification.permission === 'granted') ? 'none' : 'block';
 }
-function fullApp() { try { localStorage.removeItem('simple'); } catch (_) {} applySimple(); toast('Showing the full app'); }
+function fullApp() { try { localStorage.removeItem('simple'); sessionStorage.setItem('full', '1'); } catch (_) {} applySimple(); showTab('home'); toast('Showing the full app'); }
 function feelOverlay() {
   if (document.getElementById('feel-overlay')) return;
   const o = document.createElement('div');
@@ -342,11 +355,11 @@ async function loadThermal() {
     : '<p>Still measuring how fast the flat warms up and cools down – needs a few heating cycles.</p>';
   const kw = t.kids_wake;
   html += `<div style="padding:6px 0">🧒 Kids usually up: ${kw.weekday || kw.weekend ? `weekdays ${kw.weekday || 'learning'} · weekends ${kw.weekend || 'learning'}` : `learning (${kw.mornings} morning${kw.mornings === 1 ? '' : 's'} so far – from the Fire Sticks, tablets and their lights)`}</div>`;
-  html += '<div style="margin-top:8px">' + Object.entries(t.labels).map(([k, label]) => {
+  if ($('features')) $('features').innerHTML = Object.entries(t.labels).map(([k, label]) => {
     const locked = t.phase3.includes(k) && left > 0;
-    return `<label class="row" style="padding:6px 0"><span>${esc(label)}${locked ? `<br><span class="muted" style="font-size:12px">Ready – switches on after the learning phase (${left} day${left === 1 ? '' : 's'} to go)</span>` : ''}</span>
-      <input type="checkbox" style="width:auto" ${t.wanted[k] ? 'checked' : ''} onchange="api('/api/thermal/feature',{key:'${k}',on:this.checked}).then(loadThermal)"></label>`;
-  }).join('') + '</div>';
+    return `<label class="row" style="padding:8px 0;border-top:1px solid var(--line)"><span>${esc(label)}${locked ? `<br><span class="muted" style="font-size:12px">Ready – switches on after the learning phase (${left} day${left === 1 ? '' : 's'} to go)</span>` : ''}</span>
+      <input type="checkbox" class="switch" ${t.wanted[k] ? 'checked' : ''} onchange="api('/api/thermal/feature',{key:'${k}',on:this.checked}).then(loadThermal)"></label>`;
+  }).join('');
   if (t.savings_offset) html += `<p style="margin-top:6px">💷 Savings nudge: aiming ${Math.abs(t.savings_offset)}° below your usual comfort. Tap 🥶 if it's too much and it goes back up.</p>`;
   if (t.suggestions.length) {
     html += '<h3 style="margin:12px 0 4px;font-size:15px">Suggestions</h3>' + t.suggestions.map((s) =>
@@ -434,13 +447,16 @@ function renderCalib() {
       items.map((c) => `<div class="row" style="font-size:13px;padding:2px 0"><span>${calibDot(c.status)}${esc(c.name)}</span><span class="muted">${esc(c.detail)}</span></div>`).join('') + '</div>').join('');
 }
 function renderRecent() {
-  $('plan-recent').innerHTML = PLAN.recent.map((r) => {
+  const row = (r) => {
     const next = r.excluded ? 'include' : 'exclude';
     return `<div class="row" style="padding:6px 0;border-top:1px solid var(--line)">
       <div style="min-width:0"><b style="${r.excluded ? 'text-decoration:line-through;opacity:.6' : ''}">${esc(r.label)}</b>
         <div class="muted" style="font-size:12px">${r.excluded ? '🚫 Left out – ' + esc(r.why) : r.override === 'include' ? '✓ Counted (you chose)' : '✓ Used for learning'}</div></div>
       <button class="small" onclick="dayOverride('${r.date}', '${r.override ? '' : next}')">${r.override ? 'Automatic' : r.excluded ? 'Count it' : 'Leave out'}</button></div>`;
-  }).join('');
+  };
+  const out = PLAN.recent.filter((r) => r.excluded || r.override), rest = PLAN.recent.filter((r) => !r.excluded && !r.override);
+  $('plan-recent').innerHTML = (out.length ? out.map(row).join('') : '<p class="muted">No days left out so far.</p>') +
+    `<details style="margin-top:8px"><summary class="muted">Other recent days (${rest.length}) – tap to leave one out</summary>${rest.map(row).join('')}</details>`;
 }
 async function dayOverride(date, value) {
   PLAN = await api('/api/days', {date, value: value || null});

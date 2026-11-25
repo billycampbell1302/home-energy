@@ -110,3 +110,7 @@ body.simple #tab-simple { display: block !important; }
 #plan-days { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
 #plan-days::-webkit-scrollbar { display: none; }
 #plan-days button { flex: 0 0 auto; }
+
+.feel { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 6px; }
+.feel button { padding: 12px 4px; }
+input.switch { width: 46px; height: 28px; margin: 0; flex: 0 0 auto; accent-color: var(--warm); }

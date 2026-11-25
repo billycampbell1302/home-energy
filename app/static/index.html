@@ -87,13 +87,11 @@
             <button onclick="nudge(0.5)">+</button>
           </div>
         </div>
-        <div class="row" style="margin-top:14px">
-          <span class="muted">How does it feel?</span>
-          <div class="wrap">
-            <button class="small" onclick="feel('cold')">🥶 Cold</button>
-            <button class="small" onclick="feel('ok')">👍 Right</button>
-            <button class="small" onclick="feel('warm')">🥵 Warm</button>
-          </div>
+        <div class="muted" style="margin-top:16px">How does it feel?</div>
+        <div class="feel">
+          <button onclick="feel('cold')">🥶 Cold</button>
+          <button onclick="feel('ok')">👍 Right</button>
+          <button onclick="feel('warm')">🥵 Warm</button>
         </div>
         <div class="muted" id="comfort-line" style="font-size:13px;margin-top:4px"></div>
         <div class="muted" id="thermal-line" style="font-size:13px"></div>
@@ -410,6 +408,11 @@
           </div>
     </details>
 
+    <div class="section-title">Smart features</div>
+    <details class="card setting" id="set-features">
+      <summary><span>🧠 What it's allowed to do</span><span class="status" id="st-features"></span></summary>
+      <div class="setting-body"><div id="features" class="muted">Loading…</div></div>
+    </details>
     <div class="section-title">Notifications</div>
     <details class="card setting" id="set-push">
       <summary><span>🔔 Notifications</span><span class="status" id="st-push"></span></summary>

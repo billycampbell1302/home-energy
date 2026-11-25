@@ -28,6 +28,7 @@ log = logging.getLogger("home-energy")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 STATIC = Path(__file__).parent / "static"
 COOKIE = "he_session"
+WHO_COOKIE = "he_who"
 COOKIE_DAYS = 365
 _errors: dict[str, str] = {}
 
@@ -313,6 +314,7 @@ def login(body: Login):
     resp = JSONResponse({"ok": True})
     resp.set_cookie(COOKIE, f"{ts}.{_sign(ts)}", max_age=COOKIE_DAYS * 86400, httponly=True,
                     secure=PUBLIC_URL.startswith("https"), samesite="lax")
+    resp.delete_cookie(WHO_COOKIE)        # logging in with the password = the full app
     return resp
 
 
@@ -393,7 +395,19 @@ def join(t: str = "", app_: int = Query(0, alias="app")):
     ts = str(int(time.time()))
     resp.set_cookie(COOKIE, f"{ts}.{_sign(ts)}", max_age=COOKIE_DAYS * 86400, httponly=True,
                     secure=PUBLIC_URL.startswith("https"), samesite="lax")
+    # Marks this browser as the shared simple version for this person (the server decides, not the phone)
+    resp.set_cookie(WHO_COOKIE, f"{person}.{_sign('who:' + person)}", max_age=COOKIE_DAYS * 86400, httponly=True,
+                    secure=PUBLIC_URL.startswith("https"), samesite="lax")
     return resp
+
+
+def shared_person(request: Request) -> str | None:
+    """The person whose shared link this browser came in through (None = full app via password)."""
+    c = request.cookies.get(WHO_COOKIE, "")
+    if "." not in c:
+        return None
+    person, sig = c.rsplit(".", 1)
+    return person if person in PEOPLE and hmac.compare_digest(sig, _sign("who:" + person)) else None
 
 
 @app.get("/sw.js")
@@ -411,7 +425,7 @@ app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 # ---------------- dashboard data ----------------
 @app.get("/api/status")
-def status():
+def status(request: Request = None):
     try:
         w = weather.current()
     except Exception:
@@ -428,6 +442,7 @@ def status():
         "hold": bool(db.get_state("hold", False)),
         "errors": _errors,
         "now": int(time.time()),
+        "shared_as": shared_person(request) if request is not None else None,
     }
 
 
@@ -651,7 +666,7 @@ def presence_correct(f: PresenceFix):
 @app.get("/api/simple")
 async def simple_dashboard():
     """Everything the simple (shared) dashboard shows, in plain words."""
-    from datetime import datetime as dt
+    from datetime import datetime as dt, timedelta
     from . import thermal, comfort, connectlife, dehumid
     out = {}
     now = dt.now()
@@ -667,10 +682,21 @@ async def simple_dashboard():
                 sched.append({"from": f"{st:%H:%M}", "to": f"{end:%H:%M}" if end else "midnight", "temp": t,
                               "now": st <= now and (end is None or now < end)})
         out["schedule"] = sched
-        nxt = next(((st, t) for st, t in thermal._schedule_slots(now) if st > now), None)
+        slots = thermal._schedule_slots(now)
+        cur_t = next((t for st, t in reversed(slots) if st <= now), None)
+        nxt = next(((st, t) for st, t in slots if st > now and t != cur_t), None)
         if nxt:
             out["next"] = f"{'Heating on' if nxt[1] > low else 'Heating off'} at {nxt[0]:%H:%M}" + (f" ({nxt[1]}°)" if nxt[1] > low else "") \
                 + (" tomorrow" if nxt[0].date() != now.date() else "")
+    try:
+        tomorrow = now + timedelta(days=1)
+        wt = thermal.wake_time(now if now.hour < 9 else tomorrow)
+        out["kids_up"] = (f"{int(wt):02d}:{int(round(wt % 1 * 60)) % 60:02d}") if wt is not None else None
+        out["learning"] = {"day": int(thermal.learning_days()) + 1, "of": thermal.LEARNING_DAYS, "done": thermal.learning_done()}
+        out["lights_on"] = [d["name"] + (" (night red)" if d.get("red") else "") for d in tuya.devices()
+                            if d["kind"] == "light" and d["on"] and not d["hidden"]]
+    except Exception:
+        pass
     home = [p for p, v in presence().items() if v["home"]]
     out["who"] = {p: v["home"] for p, v in presence().items()}
     c = comfort.for_people(home or list(PEOPLE))
