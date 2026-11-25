@@ -47,6 +47,23 @@ async function load() {
   render();
   loadComfort();
   loadThermal();
+  loadCosts();
+}
+async function loadCosts() {
+  let c;
+  try { c = await api('/api/costs'); } catch (_) { return; }
+  if (!c.ready) return;
+  $('costs-card').style.display = 'block';
+  const sv = c.saved;
+  const savedLine = sv.amount > 0.05
+    ? `💷 Saved <b>£${sv.amount.toFixed(2)}</b> since ${esc(c.since)}${sv.measured ? ` <span class="muted">(meter-measured, weather-adjusted${sv.per_month ? ` · ~£${sv.per_month.toFixed(0)}/month` : ''})</span>` : ' <span class="muted">(estimate from the smart features – checked against the meter once its data catches up)</span>'}`
+    : `💷 Savings since ${esc(c.since)}: <span class="muted">${sv.measured ? 'none measured yet' : 'nothing yet – most savings start after the learning phase'}</span>`;
+  $('costs').innerHTML = `<div style="display:flex;gap:10px;text-align:center">
+      <div style="flex:1"><div class="muted" style="font-size:12px">🔥 Gas</div><div style="font-size:22px;font-weight:700">£${c.gas_day.toFixed(2)}</div><div class="muted" style="font-size:12px">a day</div></div>
+      <div style="flex:1"><div class="muted" style="font-size:12px">⚡ Electric</div><div style="font-size:22px;font-weight:700">£${c.elec_day.toFixed(2)}</div><div class="muted" style="font-size:12px">a day</div></div>
+      <div style="flex:1"><div class="muted" style="font-size:12px">${esc(c.month_label)} bill</div><div style="font-size:22px;font-weight:700">~£${c.month}</div><div class="muted" style="font-size:12px">both</div></div></div>
+    <div style="margin-top:10px;font-size:14px">${savedLine}</div>
+    <div class="muted" style="font-size:12px;margin-top:6px">Includes standing charges · ${esc(c.how)}${c.stale ? ` · ⚠️ meter data only up to ${esc(c.data_to)}` : ''}</div>`;
 }
 
 async function loadSummary() {

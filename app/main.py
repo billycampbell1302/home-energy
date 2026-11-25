@@ -521,6 +521,16 @@ def day_override(o: DayOverride):
     return plan.week()
 
 
+@app.get("/api/costs")
+def costs_summary():
+    from . import costs
+    try:
+        return costs.summary()
+    except Exception as e:
+        log.warning("costs: %s", e)
+        return {"ready": False}
+
+
 @app.get("/api/routine")
 def routine():
     from . import routine as r
