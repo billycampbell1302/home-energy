@@ -684,9 +684,13 @@ async function loadAppliances(refresh) {
     (r.appliances.length ? r.appliances.map((a) => {
       const fields = Object.entries(a.status || {});
       const changing = (a.changing || []).map((k) => `${esc(k)} = ${esc(a.status[k])}`).join('<br>');
-      return `<div class="device"><div class="row"><b>${esc(a.name)}</b><span class="pill ${a.offline ? 'away' : ''}">${a.offline ? 'offline' : 'online'}</span></div>
+      const w = a.wash || {};
+      const pill = w.running ? `${w.drying ? 'drying' : 'washing'}${w.remaining_min != null ? ' · ' + w.remaining_min + ' min left' : ''}` : (a.offline ? 'off' : 'idle');
+      const fin = w.running && w.finish_ts ? `<div style="margin-top:4px">Finishes about <b>${new Date(w.finish_ts * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}</b></div>` : '';
+      const sm = r.summary && r.summary.runs ? `<div class="muted" style="font-size:13px;margin-top:4px">Last 30 days: ${r.summary.runs} washes (${r.summary.dried} with drying) · ${r.summary.day_runs} on the day rate</div>` : '';
+      return `<div class="device"><div class="row"><b>🧺 ${esc(a.name)}</b><span class="pill ${w.running ? 'on' : ''}">${pill}</span></div>${fin}${sm}
         <div class="muted">${esc(a.type || '')} · ${fields.length} readings · updated ${ago(a.updated)}</div>
-        ${changing ? `<div class="muted" style="margin-top:6px"><b>Changed recently:</b><br>${changing}</div>` : '<div class="muted" style="margin-top:6px">Run a wash and the fields that change will show here.</div>'}
+        ${changing ? `<details style="margin-top:6px"><summary class="muted">Changed recently</summary><div class="muted">${changing}</div></details>` : ''}
         <details style="margin-top:6px"><summary class="muted">Everything it reports</summary><div class="url">${fields.map(([k, v]) => `${esc(k)}: ${esc(v)}`).join('<br>')}</div></details></div>`;
     }).join('') : '<p class="muted">No appliances found on this ConnectLife account.</p>') +
     `<button class="small" style="margin-top:8px" onclick="loadAppliances(true)">↻ Refresh</button>`;

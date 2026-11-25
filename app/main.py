@@ -211,6 +211,7 @@ async def appliance_loop():
         if connectlife.is_configured():
             try:
                 await connectlife.refresh()
+                connectlife.track_runs()
                 _errors.pop("connectlife", None)
             except Exception as e:
                 _errors["connectlife"] = str(e)[:200]
@@ -218,7 +219,6 @@ async def appliance_loop():
         await asyncio.sleep(180)   # every 3 minutes - gentle on ConnectLife's servers
 
 
-@asynccontextmanager
 def _clean_night_blips():
     """One-off: remove overnight 'left' + 'came back' pairs under 45 minutes (router reboots), so they don't
     teach the routine that someone goes out at 2am."""
@@ -245,6 +245,7 @@ def _clean_night_blips():
     db.set_state("cleaned_night_blips", len(drop))
 
 
+@asynccontextmanager
 async def lifespan(app):
     try:
         _clean_night_blips()
@@ -479,6 +480,19 @@ def diagnostics():
         if d["kind"] == "dehumidifier":
             L.append(f"DEHUMIDIFIER: on={d['on']} {d.get('humidity')}% set {d.get('set_humidity')}% faults={d.get('faults')} "
                      f"state={ {k: v for k, v in (db.get_state('dehum', {}).get(d['id']) or {}).items() if k != 'hist'} }")
+    try:
+        from . import connectlife
+        for a in connectlife.appliances():
+            L.append(f"WASHER {a['name']}: offline={a.get('offline')} {connectlife.wash_state(a)}")
+            keys = ("machine_status", "Current_program_phase", "Selected_program_remaining_time_in_minutes", "Door_status", "dry_time")
+            with db._lock:
+                rows = db._conn.execute("SELECT ts, status FROM appliance_log WHERE puid=? ORDER BY ts DESC LIMIT 25",
+                                        (a["puid"],)).fetchall()
+            for ts, st in reversed(rows):
+                st = json.loads(st)
+                L.append(f"  {time.strftime('%d %H:%M', time.localtime(ts))} " + " ".join(f"{k.split('_')[0][:6]}={st.get(k)}" for k in keys))
+    except Exception as e:
+        L.append(f"WASHER: {e}")
     L.append(f"ERRORS: {_errors or 'none'}")
     return PlainTextResponse("\n".join(L))
 
@@ -971,7 +985,8 @@ async def appliances(refresh: bool = False):
     items = connectlife.appliances()
     for a in items:
         a["changing"] = connectlife.changed_fields(a["puid"])
-    return {"configured": True, "appliances": items, "error": _errors.get("connectlife")}
+        a["wash"] = connectlife.wash_state(a)
+    return {"configured": True, "appliances": items, "error": _errors.get("connectlife"), "summary": connectlife.wash_summary()}
 
 
 # ---------------- SmartThings (Samsung TV) ----------------

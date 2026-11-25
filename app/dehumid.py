@@ -139,8 +139,10 @@ def check():
             base = statistics.median(before) if len(before) >= 6 else None
             last40 = [h for t, h in hist if ts - t <= 40 * 60]
             # Sustained for 40 min - cooking steam or the kettle clears quicker than a rack of wet washing
-            if (base is not None and d["humidity"] >= base + 8 and d["humidity"] >= (d.get("set_humidity") or 50) + 5
-                    and len(last40) >= 7 and min(last40) >= base + 6):
+            expected = db.get_state("washing_expected_until", 0) > ts      # washing machine just finished a wash
+            jump, hold = (4, 3) if expected else (8, 6)
+            if (base is not None and d["humidity"] >= base + jump and d["humidity"] >= (d.get("set_humidity") or 50) + (2 if expected else 5)
+                    and len(last40) >= (4 if expected else 7) and min(last40[-4:] if expected else last40) >= base + hold):
                 onset = next((t for t, h in hist if ts - t <= 75 * 60 and h >= base + 2), ts)
                 load = s["load"] = {"onset": onset, "base": base, "was_on": bool(s.get("was_on") or d["on"])}
                 s.update(dry=False, damp=False, late_told=False)

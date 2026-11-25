@@ -98,5 +98,16 @@ def build(hive_ok: bool, tuya_ok: bool, errors: dict | None = None) -> list:
         elif c.get("next_check"):
             add("tip", "Fixed or variable tariff?", c["why"])
 
+    try:
+        from . import connectlife
+        w = connectlife.wash_summary(30)
+        if w["day_runs"] >= 3 and w["saving_year"] >= 5:
+            add("tip", f"{w['day_runs']} of {w['runs']} washes ran on the day rate this month",
+                f"Use the washer's Delay End to finish around 07:00 – it'd run on the cheap rate and save about £{w['saving_year']:.0f}/year"
+                + (" (drying is the expensive part)." if w["dried"] else "."))
+        elif w["runs"] >= 3 and w["day_runs"] == 0:
+            add("good", "All washes on the cheap rate this month", "")
+    except Exception:
+        pass
     order = {"todo": 0, "tip": 1, "good": 2}
     return sorted(items, key=lambda i: order[i["level"]])

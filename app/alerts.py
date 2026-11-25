@@ -41,24 +41,7 @@ def check(errors: dict):
     notify.once("down_router", bool(last) and now - last > DOWN_AFTER, "service_down",
                 "Router stopped reporting", "Phone and Fire Stick detection is paused. Check the router's scheduled task.")
 
-    # 3. Washer-dryer finished (time-remaining field counts down to zero)
-    from . import connectlife
-    if connectlife.is_configured():
-        prev = db.get_state("appliance_remaining", {})
-        for a in connectlife.appliances():
-            rem = None
-            for k, v in (a.get("status") or {}).items():
-                if "remain" in k.lower() or "time_left" in k.lower():
-                    try:
-                        rem = float(v)
-                    except (TypeError, ValueError):
-                        pass
-            p = prev.get(a["puid"])
-            if rem is not None:
-                notify.once(f"wash_{a['puid']}", p is not None and p > 0 and rem == 0, "washing_done",
-                            f"{a['name']} has finished", "Time to empty it.")
-                prev[a["puid"]] = rem
-        db.set_state("appliance_remaining", prev)
+    # 3. Washer-dryer finished: handled by connectlife.track_runs() (it knows this machine's fields)
 
     # 4. Flat getting cold while someone's in (below 16° for 30 minutes)
     with db._lock:

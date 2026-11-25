@@ -88,3 +88,82 @@ def changed_fields(puid: str, hours: int = 48) -> list:
                 changed.add(k)
             seen[k] = v
     return sorted(changed)
+
+
+# ---------- Washer-dryer: what the fields mean (Hisense, from the readings it sent) ----------
+def _num(st, *keys):
+    for k in keys:
+        if k in st:
+            try:
+                return float(st[k])
+            except (TypeError, ValueError):
+                pass
+    return None
+
+
+def wash_state(a: dict) -> dict:
+    """Running / time left / finish time / drying, worked out from this machine's own field names."""
+    st = a.get("status") or {}
+    rem = _num(st, "Selected_program_remaining_time_in_minutes")
+    total = _num(st, "Selected_program_total_time_in_minutes", "Selected_program_total_running_time_in_minutes")
+    status = _num(st, "machine_status")
+    phase = _num(st, "Current_program_phase")
+    # Running: the machine says so, or the countdown has started
+    running = bool((status not in (None, 0)) or (rem is not None and total and 0 < rem < total))
+    kwh = None
+    i, d = _num(st, "Electricit_consumption_int"), _num(st, "Electricit_consumption_decimal")
+    if i is not None:
+        kwh = i + (d or 0) / 100
+    return {"running": running and not a.get("offline"), "remaining_min": int(rem) if rem is not None else None,
+            "finish_ts": int(time.time() + rem * 60) if running and rem else None,
+            "drying": (_num(st, "dry_time") or 0) > 0, "phase": phase, "status": status, "kwh": kwh,
+            "door_open": _num(st, "Door_status") == 1, "delay_end": _num(st, "DelayEndTime")}
+
+
+def track_runs():
+    """Called after each refresh: notices a wash starting and finishing, logs it, and tells the dehumidifier
+    to expect wet washing when a wash (without drying) ends."""
+    from . import notify
+    runs = db.get_state("wash_runs", [])
+    cur = db.get_state("wash_current", {})
+    now = int(time.time())
+    for a in appliances():
+        w = wash_state(a)
+        c = cur.get(a["puid"])
+        if w["running"] and not c:
+            cur[a["puid"]] = {"start": now, "drying": w["drying"], "kwh0": w["kwh"]}
+            db.add_event("device", {"name": a["name"], "kind": "washer", "state": "started"})
+        elif w["running"] and c:
+            c["drying"] = c["drying"] or w["drying"]
+        elif not w["running"] and c and not a.get("offline"):
+            mins = (now - c["start"]) / 60
+            if mins >= 10:
+                h = time.localtime(c["start"]).tm_hour
+                from .bright import tariff_settings
+                t = tariff_settings()
+                ns, ne = (int(x.split(":")[0]) for x in (t.get("night_start", "00:30"), t.get("night_end", "07:30")))
+                night = ns <= h < ne
+                kwh = (w["kwh"] - c["kwh0"]) if (w["kwh"] is not None and c.get("kwh0") is not None and w["kwh"] >= c["kwh0"]) else None
+                runs.append({"start": c["start"], "end": now, "mins": round(mins), "dried": c["drying"], "night": night, "kwh": kwh})
+                db.set_state("wash_runs", runs[-100:])
+                notify.send("washing_done", f"{a['name']} has finished",
+                            "Clothes are dry – time to empty it." if c["drying"] else "Time to hang the washing out.")
+                db.add_event("device", {"name": a["name"], "kind": "washer", "state": "finished", "mins": round(mins)})
+                if not c["drying"]:
+                    db.set_state("washing_expected_until", now + 3 * 3600)    # the dehumidifier will see wet washing soon
+            cur.pop(a["puid"], None)
+    db.set_state("wash_current", cur)
+
+
+def wash_summary(days: int = 30) -> dict:
+    """Washes on the day rate vs the cheap rate, and what moving them would save."""
+    from .bright import tariff_settings
+    since = time.time() - days * 86400
+    runs = [r for r in db.get_state("wash_runs", []) if r["start"] >= since]
+    day = [r for r in runs if not r["night"]]
+    t = tariff_settings()
+    spread = (t["day_rate"] - t["night_rate"]) / 100
+    kwh_each = lambda r: r["kwh"] if r.get("kwh") else (3.5 if r["dried"] else 0.8)    # typical wash / wash+dry
+    saving = sum(kwh_each(r) for r in day) * spread
+    return {"runs": len(runs), "day_runs": len(day), "dried": sum(r["dried"] for r in runs),
+            "saving_period": round(saving, 2), "saving_year": round(saving * 365 / days, 0)}
