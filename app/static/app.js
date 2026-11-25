@@ -329,10 +329,25 @@ async function dayOverride(date, value) {
   toast(value === 'exclude' ? 'Left out of the learning' : value === 'include' ? 'Counted in the learning' : 'Back to automatic');
   loadPlan();
 }
-function whoLine(b) {
-  const chip = (label, v, good) => v == null ? '' : `<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;border-radius:10px;background:#232833;font-size:12px">${label} <b style="color:${v >= 50 ? (good ? '#5ad19a' : '#ff7a2f') : 'var(--muted)'}">${v}%</b></span>`;
-  return Object.entries(b.who).map(([p, v]) => chip(`${esc(p)} in`, v, true)).join('') + chip('Kids active', b.kids, true) +
-    chip('Both of you in', b.all_in, true) + chip('Flat empty', b.empty, false);
+const CHIP_HELP = {
+  person: (p) => `${p}'s phone was on the home Wi-Fi (or ${p} was marked home) for this share of the time, on the days seen. Phones count as out 10 minutes after leaving the Wi-Fi (30 at night).`,
+  kids: 'Signs the kids are up and about: a Fire Stick streaming, a kids\' tablet or console in use, or one of their lights switched on or changed from night red in the last 30 minutes. A light just left on doesn\'t count.',
+  both: 'Both adults\' phones at home at the same time.',
+  empty: 'Nobody\'s phone at home, no lights or TV in use, and the Guests switch off. This is what decides "low" – the heating stays down when the flat is usually empty.',
+};
+function chipHelp(id, text) {
+  const el = $(id);
+  if (el.dataset.open === text) { el.style.display = 'none'; el.dataset.open = ''; return; }
+  el.innerHTML = text; el.style.display = 'block'; el.dataset.open = text;
+}
+function whoLine(b, i) {
+  const id = `chiphelp-${i}`;
+  const kidsWhy = (b.kids_why || []).length ? '<br><b>What it saw here:</b> ' + b.kids_why.map(([w, pc]) => `${esc(w)} (${pc}%)`).join(' · ') : '';
+  const chip = (label, v, good, help) => v == null ? '' : `<span onclick="chipHelp('${id}', this.dataset.h)" data-h="${esc(help)}" style="display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;border-radius:10px;background:#232833;font-size:12px;cursor:pointer">${label} <b style="color:${v >= 50 ? (good ? '#5ad19a' : '#ff7a2f') : 'var(--muted)'}">${v}%</b> <span class="muted">ⓘ</span></span>`;
+  return Object.entries(b.who).map(([p, v]) => chip(`${esc(p)} in`, v, true, CHIP_HELP.person(p))).join('') +
+    chip('Kids active', b.kids, true, CHIP_HELP.kids + kidsWhy) +
+    chip('Both of you in', b.all_in, true, CHIP_HELP.both) + chip('Flat empty', b.empty, false, CHIP_HELP.empty) +
+    `<div id="${id}" class="muted" style="display:none;font-size:13px;background:#1b1f27;border-radius:8px;padding:8px;margin-top:4px"></div>`;
 }
 function renderPlanDay() {
   const d = PLAN.days[planDay];
@@ -346,9 +361,9 @@ function renderPlanDay() {
   } else {
     html += `<div class="muted" style="font-size:13px">Based on ${d.days_seen} ${esc(d.days_seen === 1 ? d.plural.slice(0, -1) : d.plural)} · covers ${d.known_hours} of 24 h so far` +
       (d.known_hours >= 23 ? ` · warm for <b>${d.warm_hours} h</b> vs ${d.hive_hours} h on your Hive schedule (the boiler only fires when it drops below)` : '') + '</div>';
-    html += d.blocks.map((b) => `<div style="padding:8px 0;border-top:1px solid var(--line);margin-top:8px">
+    html += d.blocks.map((b, bi) => `<div style="padding:8px 0;border-top:1px solid var(--line);margin-top:8px">
         <div class="row"><b>${b.from}–${b.to === '00:00' ? '24:00' : b.to}</b><span class="pill ${b.warm ? 'on' : ''}">${b.state === 'nodata' ? 'no data' : b.warm ? b.target + '°' : 'low ' + b.target + '°'}</span></div>
-        ${b.state === 'warm' || b.state === 'low' ? `<div style="margin-top:4px">${whoLine(b)}</div>` : ''}
+        ${b.state === 'warm' || b.state === 'low' ? `<div style="margin-top:4px">${whoLine(b, bi)}</div>` : ''}
         ${b.warm && (b.preheat_min || b.coast_min) ? `<div style="font-size:13px;margin-top:2px">🔥 Heating on ${b.heat_from}–${b.heat_to}</div>` : ''}
         <ul class="muted" style="font-size:13px;margin:4px 0 0 18px;padding:0">${b.why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>`).join('');
   }

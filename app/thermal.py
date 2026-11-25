@@ -663,9 +663,11 @@ def _wake_signal_any() -> str | None:
     try:
         from .tuya import tuya
         reds = set(db.get_state("night_red_ids", []))
+        act = db.get_state("light_activity", {})
         for d in tuya.devices():
-            if (d.get("kids") or d["id"] in reds) and not d["hidden"] and d["on"] and not d.get("red"):
-                return f"{d['name']} on"
+            if (d.get("kids") or d["id"] in reds) and not d["hidden"] and d["on"] and not d.get("red") \
+                    and time.time() - act.get(d["id"], 0) < 30 * 60:
+                return f"{d['name']} switched on"
     except Exception:
         pass
     return None

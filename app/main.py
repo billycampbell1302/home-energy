@@ -121,7 +121,10 @@ def poll_once():
             log.warning("dehumidifier: %s", e)
     from . import thermal
     try:
-        row.setdefault("extra", {})["kids_active"] = bool(thermal._wake_signal_any())
+        why = thermal._wake_signal_any()
+        row.setdefault("extra", {})["kids_active"] = bool(why)
+        if why:
+            row["extra"]["kids_why"] = why
     except Exception:
         pass
     if thermal.sun_skewed():

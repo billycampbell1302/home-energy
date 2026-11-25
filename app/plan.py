@@ -100,6 +100,8 @@ def _occupancy() -> dict:
         if "kids_active" in e:
             a["kids_n"] += 1
             a["kids"] += int(bool(e["kids_active"]))
+            if e.get("kids_why"):
+                a["why:" + e["kids_why"]] += 1
     return {"acc": acc, "days": days}
 
 
@@ -158,6 +160,8 @@ def day_plan(day: datetime, occ: dict, temps: dict) -> dict:
         who = {p: _pct(tot, p, p + "_n") for p in PEOPLE}
         b["who"] = who
         b["kids"] = _pct(tot, "kids", "kids_n")
+        b["kids_why"] = sorted(([k[4:], round(100 * v / tot["kids_n"])] for k, v in tot.items() if k.startswith("why:") and tot.get("kids_n")),
+                               key=lambda x: -x[1])[:4]
         b["all_in"], b["empty"] = _pct(tot, "both"), _pct(tot, "empty")
         b["warm"] = b["state"] == "warm"
         b["why"] = []
