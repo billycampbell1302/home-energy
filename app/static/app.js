@@ -94,6 +94,11 @@ function render() {
     const modes = {SCHEDULE: 'On schedule', MANUAL: 'Manual', OFF: 'Off', BOOST: `Boost · ${h.boost_minutes} min left`};
     $('mode').textContent = modes[h.mode] || h.mode || '';
     $('boost-off').style.display = h.mode === 'BOOST' ? 'inline-block' : 'none';
+    // Highlight only what's actually active
+    const boosting = h.mode === 'BOOST', long = (h.boost_minutes || 0) > 30;
+    $('boost30').classList.toggle('primary', boosting && !long);
+    $('boost60').classList.toggle('primary', boosting && long);
+    ['SCHEDULE', 'MANUAL', 'OFF'].forEach((m) => { const b = $('mode-' + m); if (b) b.classList.toggle('primary', h.mode === m); });
   }
   if (S.weather) {
     const w = S.weather;
@@ -286,10 +291,22 @@ async function loadPlan() {
   const ticks = '<div class="row muted" style="font-size:11px;margin:0 0 2px 54px"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>';
   $('plan-week').innerHTML = ticks + PLAN.days.map((d, i) =>
     `<div style="display:flex;align-items:center;gap:6px;margin:5px 0;cursor:pointer" onclick="planDay=${i};renderPlanDay()">
-      <div style="width:48px;font-size:12px" class="muted">${esc(d.label)}</div><div style="flex:1">${planBar(d.blocks, d.hive, 14)}</div></div>`).join('') +
-    '<div class="muted" style="font-size:12px;margin-top:6px"><span style="color:#ff7a2f">■</span> warm &nbsp; <span style="color:#f0a04b">■</span> mild &nbsp; <span style="color:#4a5060">■</span> low 16° &nbsp; ▨ no data yet</div>';
+      <div style="width:48px;font-size:12px" class="muted">${esc(d.label)}</div><div style="flex:1">${planBar(d.blocks, d.hive, 14)}</div>
+      <div style="width:30px;text-align:right;font-size:11px" title="days of data">${calibDot(d.seen >= 3 ? 'ok' : d.seen ? 'learning' : 'none')}${d.seen}</div></div>`).join('') +
+    '<div class="muted" style="font-size:12px;margin-top:6px"><span style="color:#ff7a2f">■</span> warm &nbsp; <span style="color:#f0a04b">■</span> mild &nbsp; <span style="color:#4a5060">■</span> low 16° &nbsp; ▨ no data yet<br>Thin bar = your Hive schedule now · number = days of data for that weekday</div>';
   renderPlanDay();
   renderRecent();
+  renderCalib();
+}
+function calibDot(st) {
+  return `<span style="color:${st === 'ok' ? '#5ad19a' : st === 'learning' ? '#f0c04b' : '#6b7280'}">●</span> `;
+}
+function renderCalib() {
+  const groups = {};
+  PLAN.calibration.forEach((c) => (groups[c.group] = groups[c.group] || []).push(c));
+  $('plan-calib').innerHTML = `<div class="muted" style="font-size:12px;margin-bottom:6px">${calibDot('ok')}calibrated &nbsp; ${calibDot('learning')}learning &nbsp; ${calibDot('none')}no data yet</div>` +
+    Object.entries(groups).map(([g, items]) => `<div style="margin-top:8px"><b style="font-size:13px">${esc(g)}</b>` +
+      items.map((c) => `<div class="row" style="font-size:13px;padding:2px 0"><span>${calibDot(c.status)}${esc(c.name)}</span><span class="muted">${esc(c.detail)}</span></div>`).join('') + '</div>').join('');
 }
 function renderRecent() {
   $('plan-recent').innerHTML = PLAN.recent.map((r) => {

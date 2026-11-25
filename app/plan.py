@@ -216,12 +216,47 @@ def day_plan(day: datetime, occ: dict, temps: dict) -> dict:
             "outdoor_min": min(lows) if lows else None, "outdoor_max": max(lows) if lows else None}
 
 
+def calibration(occ: dict, temps: dict) -> list:
+    """What's calibrated, what's still learning, what has no data - for the Plan tab."""
+    from . import comfort, thermal
+    from .daytypes import excluded_set
+    out = []
+    add = lambda group, name, status, detail: out.append({"group": group, "name": name, "status": status, "detail": detail})
+    names = ["Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays"]
+    for wd in range(7):
+        n = len(set().union(*[occ["days"].get((wd, i), set()) for i in range(48)]))
+        add("Who's home", names[wd], "ok" if n >= 3 else "learning" if n else "none",
+            f"{n} seen" + ("" if n >= 3 else f" – reliable from 3"))
+    for p, e in comfort.estimates().items():
+        add("Comfort", p, "ok" if e["confident"] else "learning" if e["samples"] else "none",
+            f"{e['samples']} taps/changes" + ("" if e["confident"] else " – reliable from 3"))
+    skip = excluded_set()
+    log = [w for w in db.get_state("wake_log", []) if w["date"] not in skip]
+    for label, we in (("weekdays", False), ("weekends", True)):
+        n = sum(1 for w in log if w["weekend"] == we)
+        add("Kids up", label, "ok" if n >= 3 else "learning" if n else "none", f"{n} mornings" + ("" if n >= 3 else " – reliable from 3"))
+    m = thermal.model()
+    add("Flat", "Warm-up speed", "ok" if (m.get("a") and m.get("heat_runs", 0) >= 5) else "learning" if m.get("heat_runs") else "none",
+        f"{m.get('heat_runs', 0)} heating periods – reliable from 5")
+    add("Flat", "Heat loss", "ok" if (m.get("k") and m.get("cool_runs", 0) >= 5) else "learning" if m.get("cool_runs") else "none",
+        f"{m.get('cool_runs', 0)} cool-down periods – reliable from 5")
+    with db._lock:
+        last = db._conn.execute("SELECT MAX(ts) FROM energy WHERE kwh>0").fetchone()[0]
+    age = (time.time() - last) / 86400 if last else None
+    add("Data", "Smart meter", "ok" if age is not None and age < 3 else "learning" if last else "none",
+        f"up to {datetime.fromtimestamp(last):%d %b}" if last else "no data")
+    add("Data", "Weather forecast", "ok" if temps else "none", "Met Office, 7 days" if temps else "unavailable")
+    return out
+
+
 def week() -> dict:
     from . import thermal
     occ, temps = _occupancy(), _forecast()
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     # (each day uses only what was seen on that same weekday)
     days = [day_plan(today + timedelta(days=i), occ, temps) for i in range(7)]
-    return {"days": days, "learning_days": round(thermal.learning_days(), 1), "learning_target": thermal.LEARNING_DAYS,
+    for d in days:
+        d["seen"] = len(set().union(*[occ["days"].get((datetime.fromisoformat(d["date"]).weekday(), i), set()) for i in range(48)]))
+    return {"days": days, "calibration": calibration(occ, temps), "learning_days": round(thermal.learning_days(), 1), "learning_target": thermal.LEARNING_DAYS,
             "model_confident": bool(thermal.model().get("confident")), "low": LOW,
             "active": thermal.learning_done(), "recent": __import__("app.daytypes", fromlist=["x"]).recent()}
