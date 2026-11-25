@@ -11,6 +11,7 @@ Then the warm blocks are adjusted with the flat's learned heat-up / heat-loss:
 It's shown next to the current Hive schedule. Nothing is sent to Hive from here - this is the preview that
 phase 3 will run once the learning phase is done.
 """
+import json
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -46,30 +47,61 @@ def _forecast() -> dict:
     return _wx["temps"]
 
 
+def _slot(d: datetime) -> int:
+    return (d.hour * 60 + d.minute) // SLOT
+
+
 def _occupancy() -> dict:
-    """(weekday, slot) -> [fraction of readings with someone in, number of days seen]; plus weekday/weekend groups."""
+    """Per weekday and half hour, from the last 4 weeks, only the SAME weekday counts:
+       (weekday, slot) -> {"days": set(dates), "n": samples, "Billy": hits, "Katie": hits, "both": hits, "empty": hits,
+                           "kids": hits, "kids_n": samples}"""
+    from .routine import _presence_events
+    since = time.time() - 28 * 86400
+    acc = defaultdict(lambda: defaultdict(int))
+    days = defaultdict(set)
+    # Each person: replay their arrive/leave events (only from their first event - before that we don't know)
+    ev = _presence_events(since - 86400)
+    now = time.time()
+    for person in PEOPLE:
+        mine = [(ts, home) for ts, pp, home in ev if pp == person]
+        if not mine:
+            continue
+        i, state = 0, mine[0][1]
+        t = mine[0][0]
+        while t < now:
+            while i < len(mine) and mine[i][0] <= t:
+                state = mine[i][1]
+                i += 1
+            if t >= since:
+                d = datetime.fromtimestamp(t)
+                k = (d.weekday(), _slot(d))
+                acc[k][person + "_n"] += 1
+                acc[k][person] += int(state)
+            t += 300
+    # Whole household: from the 5-minute readings
     with db._lock:
-        rows = db._conn.execute("SELECT ts, people_home, kids_lights_on, hold FROM readings WHERE ts>=?",
-                                (time.time() - 28 * 86400,)).fetchall()
-    acc = defaultdict(lambda: [0, 0, set()])
-    for ts, p, k, h in rows:
+        rows = db._conn.execute("SELECT ts, people_home, kids_lights_on, hold, extra FROM readings WHERE ts>=?", (since,)).fetchall()
+    for ts, ph, other, hold, extra in rows:
         d = datetime.fromtimestamp(ts)
-        slot = (d.hour * 60 + d.minute) // SLOT
-        occ = 1 if (p or k or h) else 0
-        for key in ((d.weekday(), slot), ("we" if d.weekday() >= 5 else "wd", slot)):
-            a = acc[key]
-            a[0] += occ
-            a[1] += 1
-            a[2].add(d.date())
-    return {k: (v[0] / v[1], len(v[2])) for k, v in acc.items()}
+        k = (d.weekday(), _slot(d))
+        a = acc[k]
+        days[k].add(d.date())
+        a["n"] += 1
+        a["both"] += int((ph or 0) >= len(PEOPLE))
+        a["empty"] += int(not ph and not other and not hold)
+        try:
+            e = json.loads(extra) if extra else {}
+        except ValueError:
+            e = {}
+        if "kids_active" in e:
+            a["kids_n"] += 1
+            a["kids"] += int(bool(e["kids_active"]))
+    return {"acc": acc, "days": days}
 
 
-def _p_home(occ: dict, day: datetime, slot: int):
-    for key in ((day.weekday(), slot), ("we" if day.weekday() >= 5 else "wd", slot)):
-        if key in occ and occ[key][1] >= 2:
-            p, n = occ[key]
-            return p, n, key[0] if isinstance(key[0], str) else "same"
-    return None, 0, None
+def _pct(a: dict, key: str, n_key: str = "n"):
+    n = a.get(n_key, 0)
+    return round(100 * a.get(key, 0) / n) if n else None
 
 
 def _fmt(mins: float) -> str:
@@ -82,83 +114,100 @@ def day_plan(day: datetime, occ: dict, temps: dict) -> dict:
     m = thermal.model()
     wake = thermal.wake_time(day)
     sched = [(s, t) for s, t in thermal._schedule_slots(day) if s.date() == day.date()]
-    dayname = day.strftime("%A")
+    wd = day.weekday()
+    plural = day.strftime("%A") + "s"
+    acc, days = occ["acc"], occ["days"]
+    seen_days = set().union(*[days.get((wd, i), set()) for i in range(48)]) if days else set()
 
-    # 1. Warm or low for each half hour, with the reason
+    # 1. Each half hour: no data / asleep / warm / low
     slots = []
     for i in range(24 * 60 // SLOT):
         h = i * SLOT / 60
-        p, n, src = _p_home(occ, day, i)
+        a = acc.get((wd, i), {})
         asleep = h >= BED or h < (wake if wake is not None else 6.5)
-        if p is None:
-            # nothing learned yet for this time - follow the Hive schedule
-            hive_t = next((t for s, t in reversed(sched) if s.hour + s.minute / 60 <= h), sched[-1][1] if sched else LOW)
-            warm = hive_t > LOW + 0.5 and not asleep
-            why = "not enough data yet – following your Hive schedule"
+        if not a.get("n"):
+            state = "nodata"
+        elif asleep:
+            state = "night"
         else:
-            warm = p >= 0.5 and not asleep
-            who = f"{'' if src == 'same' else ('weekdays' if src == 'wd' else 'weekends')}"
-            if asleep:
-                why = "night – everyone asleep"
-            elif warm:
-                why = f"usually someone home ({p * 100:.0f}% of {dayname + 's' if not who else who})"
-            else:
-                why = f"flat usually empty ({(1 - p) * 100:.0f}% of {dayname + 's' if not who else who})"
-        target = comfort.for_people(list(PEOPLE), hour=int(h))["temp"] if warm else LOW
-        slots.append({"warm": warm, "target": target, "why": why})
+            empty = a["empty"] / a["n"]
+            state = "warm" if empty < 0.5 else "low"
+        slots.append((state, a))
 
-    # 2. Group into blocks
+    # 2. Group runs of the same state into blocks and average who was in
     blocks = []
-    for i, sl in enumerate(slots):
-        if blocks and blocks[-1]["warm"] == sl["warm"] and blocks[-1]["target"] == sl["target"]:
+    for i, (state, a) in enumerate(slots):
+        if blocks and blocks[-1]["state"] == state:
             blocks[-1]["end"] = (i + 1) * SLOT
-            if sl["why"] not in blocks[-1]["why"]:
-                blocks[-1]["why"].append(sl["why"])
+            blocks[-1]["_slots"].append(a)
         else:
-            blocks.append({"start": i * SLOT, "end": (i + 1) * SLOT, "warm": sl["warm"], "target": sl["target"], "why": [sl["why"]]})
+            blocks.append({"state": state, "start": i * SLOT, "end": (i + 1) * SLOT, "_slots": [a]})
 
-    # 3. Reasons that apply to the whole warm block, and Early-On / coasting
     for b in blocks:
-        if not b["warm"]:
+        tot = defaultdict(int)
+        for a in b.pop("_slots"):
+            for k, v in a.items():
+                tot[k] += v
+        b["from"], b["to"] = _fmt(b["start"]), _fmt(b["end"])
+        b["days"] = len(set().union(*[days.get((wd, i), set()) for i in range(b["start"] // SLOT, b["end"] // SLOT)]))
+        who = {p: _pct(tot, p, p + "_n") for p in PEOPLE}
+        b["who"] = who
+        b["kids"] = _pct(tot, "kids", "kids_n")
+        b["all_in"], b["empty"] = _pct(tot, "both"), _pct(tot, "empty")
+        b["warm"] = b["state"] == "warm"
+        b["why"] = []
+        if b["state"] == "nodata":
+            b["target"] = None
+            b["why"].append(f"No data for {plural} at this time yet")
             continue
-        sh = b["start"] / 60
-        if wake is not None and abs(sh - wake) < 0.6:
-            b["why"].insert(0, f"kids usually up by {_fmt(wake * 60)}")
-        c = comfort.for_people(list(PEOPLE), hour=int(sh))
-        per = ", ".join(f"{p} {e['temp']}°" for p, e in c["per_person"].items())
-        b["why"].append(f"comfortable {c['period']}: {per} → {c['temp']}° together"
-                        + ("" if c["confident"] else " (still learning – using 20° until it knows)"))
-        key = (day.replace(hour=0, minute=0) + timedelta(minutes=b["start"])).strftime("%Y-%m-%dT%H:00")
+        if b["state"] == "night":
+            b["target"] = LOW
+            b["why"].append("Night – everyone asleep" + (f" (kids usually up {_fmt(wake * 60)})" if wake is not None and b["start"] < 12 * 60
+                                                         else " (kids' wake-up time still being learned)" if b["start"] < 12 * 60 else ""))
+            continue
+        if not b["warm"]:
+            b["target"] = LOW
+            b["why"].append(f"Flat empty {b['empty']}% of the time")
+            continue
+        # Warm: aim for the comfort of whoever is usually in
+        usual = [p for p, v in who.items() if v is not None and v >= 50] or list(PEOPLE)
+        c = comfort.for_people(usual, hour=int(b["start"] / 60))
+        b["target"] = c["temp"]
+        taps = lambda p: c["per_person"][p]["samples"]
+        parts = [f"{p} {c['per_person'][p]['temp']}°" + ("" if c["per_person"][p]["confident"] else f" (learning, {taps(p)} so far)") for p in usual]
+        b["why"].append(f"Aiming {c['temp']}° – what {' and '.join(usual)} find{'s' if len(usual) == 1 else ''} comfortable "
+                        f"this {c['period']}: " + ", ".join(parts))
+        if wake is not None and abs(b["start"] / 60 - wake) < 0.6:
+            b["why"].append(f"Kids usually up by {_fmt(wake * 60)}")
+        key = (day + timedelta(minutes=b["start"])).strftime("%Y-%m-%dT%H:00")
         out = temps.get(key)
         if out is not None and m.get("confident"):
             lead = thermal.heat_minutes(LOW + 1, b["target"], out, m)
             if lead:
-                lead = min(lead, 120)
-                b["preheat_min"] = int(lead)
-                b["why"].append(f"heating starts {lead} min early – the flat takes that long to warm up when it's {out:.0f}° outside")
-            end_key = (day.replace(hour=0, minute=0) + timedelta(minutes=b["end"])).strftime("%Y-%m-%dT%H:00")
+                b["preheat_min"] = int(min(lead, 120))
+                b["why"].append(f"Starts {b['preheat_min']} min early – takes that long to warm up at {out:.0f}° outside")
+            end_key = (day + timedelta(minutes=b["end"])).strftime("%Y-%m-%dT%H:00")
             co = thermal.coast_minutes(b["target"], b["target"] - 0.5, temps.get(end_key, out), m)
             if co:
-                co = min(co, 60)
-                b["coast_min"] = int(co)
-                b["why"].append(f"switches down {co} min before the end – it stays within ½° that long")
-        elif out is not None and out <= 2:
-            b["why"].append(f"cold forecast ({out:.0f}° outside)")
+                b["coast_min"] = int(min(co, 60))
+                b["why"].append(f"Goes down {b['coast_min']} min before the end – the flat holds its heat")
+        elif not m.get("confident"):
+            b["why"].append("Warm-up time still being learned – no early start yet")
         b["heat_from"] = _fmt(b["start"] - b.get("preheat_min", 0))
         b["heat_to"] = _fmt(b["end"] - b.get("coast_min", 0))
-    for b in blocks:
-        b["from"], b["to"] = _fmt(b["start"]), _fmt(b["end"])
 
     warm_hours = sum((b["end"] - b["start"] + b.get("preheat_min", 0) - b.get("coast_min", 0)) / 60 for b in blocks if b["warm"])
     hive_blocks = []
-    for i, (s, t) in enumerate(sched):
-        e = sched[i + 1][0] if i + 1 < len(sched) else s.replace(hour=23, minute=59)
-        hive_blocks.append({"from": f"{s:%H:%M}", "to": f"{e:%H:%M}", "target": t,
-                            "start": s.hour * 60 + s.minute, "end": e.hour * 60 + e.minute})
+    for i, (st, t) in enumerate(sched):
+        e = sched[i + 1][0] if i + 1 < len(sched) else st.replace(hour=23, minute=59)
+        hive_blocks.append({"from": f"{st:%H:%M}", "to": f"{e:%H:%M}", "target": t,
+                            "start": st.hour * 60 + st.minute, "end": e.hour * 60 + e.minute})
     hive_hours = sum((b["end"] - b["start"]) / 60 for b in hive_blocks if b["target"] > LOW + 0.5)
+    known = sum(b["end"] - b["start"] for b in blocks if b["state"] != "nodata") / 60
     lows = [v for k, v in temps.items() if k.startswith(day.strftime("%Y-%m-%d"))]
-    return {"date": day.strftime("%Y-%m-%d"), "label": day.strftime("%a %d"), "blocks": blocks, "hive": hive_blocks,
-            "warm_hours": round(warm_hours, 1), "hive_hours": round(hive_hours, 1),
+    return {"date": day.strftime("%Y-%m-%d"), "label": day.strftime("%a %d"), "plural": plural, "blocks": blocks,
+            "hive": hive_blocks, "warm_hours": round(warm_hours, 1), "hive_hours": round(hive_hours, 1),
+            "days_seen": len(seen_days), "known_hours": round(known, 1), "people": list(PEOPLE),
             "outdoor_min": min(lows) if lows else None, "outdoor_max": max(lows) if lows else None}
 
 
@@ -166,6 +215,7 @@ def week() -> dict:
     from . import thermal
     occ, temps = _occupancy(), _forecast()
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    # (each day uses only what was seen on that same weekday)
     days = [day_plan(today + timedelta(days=i), occ, temps) for i in range(7)]
     return {"days": days, "learning_days": round(thermal.learning_days(), 1), "learning_target": thermal.LEARNING_DAYS,
             "model_confident": bool(thermal.model().get("confident")), "low": LOW,

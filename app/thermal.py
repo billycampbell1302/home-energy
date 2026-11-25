@@ -645,3 +645,20 @@ def _next_weekday(weekend: bool) -> datetime:
     while (d.weekday() >= 5) != weekend:
         d += timedelta(days=1)
     return d
+
+
+def _wake_signal_any() -> str | None:
+    """Kids active right now (any time of day): Fire Stick streaming, kids' tablet in use, or their light in use
+    (on and not night red, or changed in the last 10 minutes)."""
+    sig = _wake_signal()
+    if sig:
+        return sig
+    try:
+        from .tuya import tuya
+        reds = set(db.get_state("night_red_ids", []))
+        for d in tuya.devices():
+            if (d.get("kids") or d["id"] in reds) and not d["hidden"] and d["on"] and not d.get("red"):
+                return f"{d['name']} on"
+    except Exception:
+        pass
+    return None

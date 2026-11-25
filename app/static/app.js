@@ -255,34 +255,45 @@ async function loadSmartReport() {
 // ---------- Plan tab ----------
 let PLAN = null, planDay = 0;
 function planBar(blocks, hive, h) {
-  const seg = (b, warm, t) => `<div title="${b.from}–${b.to} ${t}°" style="position:absolute;left:${b.start / 14.4}%;width:${(b.end - b.start) / 14.4}%;top:0;bottom:0;background:${warm ? (t >= 20.5 ? '#ff7a2f' : '#f0a04b') : '#2a2f3a'}"></div>`;
-  return `<div style="position:relative;height:${h}px;border-radius:5px;overflow:hidden;background:#1b1f27">${blocks.map((b) => seg(b, b.warm, b.target)).join('')}</div>` +
-    (hive ? `<div style="position:relative;height:5px;margin-top:2px;border-radius:3px;overflow:hidden;background:#1b1f27">${hive.map((b) => seg(b, b.target > PLAN.low + 0.5, b.target)).join('')}</div>` : '');
+  const col = (b) => b.state === 'nodata' ? 'repeating-linear-gradient(45deg,#1b1f27 0 4px,#232833 4px 8px)'
+    : b.warm ? (b.target >= 20.5 ? '#ff7a2f' : '#f0a04b') : '#2a2f3a';
+  const seg = (b, bg) => `<div style="position:absolute;left:${b.start / 14.4}%;width:${(b.end - b.start) / 14.4}%;top:0;bottom:0;background:${bg}"></div>`;
+  return `<div style="position:relative;height:${h}px;border-radius:5px;overflow:hidden;background:#1b1f27">${blocks.map((b) => seg(b, col(b))).join('')}</div>` +
+    (hive ? `<div style="position:relative;height:5px;margin-top:2px;border-radius:3px;overflow:hidden;background:#1b1f27">${hive.map((b) => seg(b, b.target > PLAN.low + 0.5 ? '#ff7a2f' : '#2a2f3a')).join('')}</div>` : '');
 }
 async function loadPlan() {
   try { PLAN = await api('/api/plan'); } catch (e) { $('plan-status').textContent = 'Could not load the plan'; return; }
   const left = Math.max(0, Math.ceil(PLAN.learning_target - PLAN.learning_days));
-  $('plan-status').innerHTML = PLAN.active
-    ? 'Built from what it has learned about your week. Top bar = plan, thin bar = your Hive schedule now.'
-    : `<b>Draft – still learning</b> (day ${Math.floor(PLAN.learning_days)} of ${PLAN.learning_target}). This is what it would do with what it knows so far; it sharpens every day and starts running in ${left} day${left === 1 ? '' : 's'}. Top bar = plan, thin bar = your Hive schedule now.`;
+  $('plan-status').innerHTML = (PLAN.active ? '' : `<b>Draft – still learning</b> (day ${Math.floor(PLAN.learning_days)} of ${PLAN.learning_target}, runs for real in ${left} day${left === 1 ? '' : 's'}). `) +
+    'Each day only uses what it has seen on that same day of the week. Top bar = plan, thin bar = your Hive schedule now.';
   const ticks = '<div class="row muted" style="font-size:11px;margin:0 0 2px 54px"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>';
   $('plan-week').innerHTML = ticks + PLAN.days.map((d, i) =>
     `<div style="display:flex;align-items:center;gap:6px;margin:5px 0;cursor:pointer" onclick="planDay=${i};renderPlanDay()">
       <div style="width:48px;font-size:12px" class="muted">${esc(d.label)}</div><div style="flex:1">${planBar(d.blocks, d.hive, 14)}</div></div>`).join('') +
-    '<div class="muted" style="font-size:12px;margin-top:6px"><span style="color:#ff7a2f">■</span> warm &nbsp; <span style="color:#f0a04b">■</span> mild &nbsp; <span style="color:#4a5060">■</span> low (16°)</div>';
+    '<div class="muted" style="font-size:12px;margin-top:6px"><span style="color:#ff7a2f">■</span> warm &nbsp; <span style="color:#f0a04b">■</span> mild &nbsp; <span style="color:#4a5060">■</span> low 16° &nbsp; ▨ no data yet</div>';
   renderPlanDay();
+}
+function whoLine(b) {
+  const chip = (label, v, good) => v == null ? '' : `<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;border-radius:10px;background:#232833;font-size:12px">${label} <b style="color:${v >= 50 ? (good ? '#5ad19a' : '#ff7a2f') : 'var(--muted)'}">${v}%</b></span>`;
+  return Object.entries(b.who).map(([p, v]) => chip(`${esc(p)} in`, v, true)).join('') + chip('Kids active', b.kids, true) +
+    chip('Both of you in', b.all_in, true) + chip('Flat empty', b.empty, false);
 }
 function renderPlanDay() {
   const d = PLAN.days[planDay];
   $('plan-days').innerHTML = PLAN.days.map((x, i) => `<button class="small ${i === planDay ? 'primary' : ''}" onclick="planDay=${i};renderPlanDay()">${esc(x.label.split(' ')[0])}</button>`).join('');
-  const diff = d.hive_hours - d.warm_hours;
   let html = `<div class="row"><b>${esc(d.label)}</b><span class="muted" style="font-size:13px">${d.outdoor_min != null ? `${Math.round(d.outdoor_min)}° to ${Math.round(d.outdoor_max)}° outside` : ''}</span></div>
-    <div style="margin:8px 0">${planBar(d.blocks, d.hive, 22)}</div>
-    <div class="muted" style="font-size:13px">Plan heats about <b>${d.warm_hours} h</b> · Hive schedule ${d.hive_hours} h${Math.abs(diff) >= 0.5 ? ` · <b>${diff > 0 ? diff.toFixed(1) + ' h less' : (-diff).toFixed(1) + ' h more'}</b> than now` : ''}</div>`;
-  html += d.blocks.map((b) => `<div style="padding:8px 0;border-top:1px solid var(--line);margin-top:8px">
-      <div class="row"><b>${b.from}–${b.to === '00:00' ? '24:00' : b.to}</b><span class="pill ${b.warm ? 'on' : ''}">${b.warm ? b.target + '°' : 'low ' + b.target + '°'}</span></div>
-      ${b.warm && (b.preheat_min || b.coast_min) ? `<div style="font-size:13px">🔥 Heating on ${b.heat_from}–${b.heat_to}</div>` : ''}
-      <ul class="muted" style="font-size:13px;margin:4px 0 0 18px;padding:0">${b.why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>`).join('');
+    <div style="margin:8px 0">${planBar(d.blocks, d.hive, 22)}</div>`;
+  if (!d.days_seen) {
+    html += `<p class="muted">No data for ${esc(d.plural)} yet – this fills in after the first one. Until then your Hive schedule runs as normal.</p>`;
+  } else {
+    html += `<div class="muted" style="font-size:13px">Based on ${d.days_seen} ${esc(d.plural)} · covers ${d.known_hours} of 24 h so far` +
+      (d.known_hours >= 23 ? ` · plan heats about <b>${d.warm_hours} h</b> vs Hive ${d.hive_hours} h` : '') + '</div>';
+    html += d.blocks.map((b) => `<div style="padding:8px 0;border-top:1px solid var(--line);margin-top:8px">
+        <div class="row"><b>${b.from}–${b.to === '00:00' ? '24:00' : b.to}</b><span class="pill ${b.warm ? 'on' : ''}">${b.state === 'nodata' ? 'no data' : b.warm ? b.target + '°' : 'low ' + b.target + '°'}</span></div>
+        ${b.state === 'warm' || b.state === 'low' ? `<div style="margin-top:4px">${whoLine(b)}</div>` : ''}
+        ${b.warm && (b.preheat_min || b.coast_min) ? `<div style="font-size:13px;margin-top:2px">🔥 Heating on ${b.heat_from}–${b.heat_to}</div>` : ''}
+        <ul class="muted" style="font-size:13px;margin:4px 0 0 18px;padding:0">${b.why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>`).join('');
+  }
   if (d.hive.length) html += `<details style="margin-top:10px"><summary class="muted">Your Hive schedule for this day</summary><div class="muted" style="font-size:13px">${d.hive.map((b) => `${b.from}–${b.to} ${b.target}°`).join('<br>')}</div></details>`;
   $('plan-day').innerHTML = html;
 }

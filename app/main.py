@@ -120,6 +120,10 @@ def poll_once():
         except Exception as e:
             log.warning("dehumidifier: %s", e)
     from . import thermal
+    try:
+        row.setdefault("extra", {})["kids_active"] = bool(thermal._wake_signal_any())
+    except Exception:
+        pass
     if thermal.sun_skewed():
         row.setdefault("extra", {})["sun_skew"] = True
     db.add_reading(**row)
