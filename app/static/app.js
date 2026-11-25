@@ -23,22 +23,43 @@ const ago = (ts) => {
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 
 // ---------- tabs ----------
+const TAB_TITLES = {home: 'Home', plan: 'Plan', insights: 'Insights', energy: 'Energy', devices: 'Devices', setup: 'Settings'};
 function showTab(tab) {
   document.querySelectorAll('nav button').forEach((x) => x.classList.toggle('active', x.dataset.tab === tab));
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === 'tab-' + tab));
-  $('title').textContent = tab[0].toUpperCase() + tab.slice(1);
+  $('title').textContent = TAB_TITLES[tab] || tab;
   window.scrollTo(0, 0);
   onTab(tab);
 }
 document.querySelectorAll('nav button').forEach((b) => b.onclick = () => showTab(b.dataset.tab));
 function onTab(tab) {
-  const b = {dataset: {tab}};
-  if (tab === 'summary') { loadLearning(); loadSummary(); loadReport(); loadComfort(); loadThermal(); loadSmartReport(); }
-  if (b.dataset.tab === 'history') { loadRoutine(); loadHistory(24); loadEvents(); }
-  if (b.dataset.tab === 'energy') loadEnergy(30);
-  if (tab === 'devices') { loadAppliances(false); loadOverview(); }
   if (tab === 'plan') loadPlan();
-  if (b.dataset.tab === 'setup') { if ($('share-btns')) $('share-btns').innerHTML = Object.keys(S.presence || {}).filter((p) => { try { return p !== localStorage.getItem('me'); } catch (_) { return true; } }).map((p) => `<button class="small primary" onclick="shareWith('${esc(p)}')">Share with ${esc(p)}</button>`).join(''); fillFix(); loadSetup(); loadVersion(); loadTariffForm(); loadRouter(); loadPush(); }
+  if (tab === 'insights') {
+    loadLearning(); loadPlan(); loadComfort(); loadThermal(); loadRoutine();
+    loadSmartReport(); loadSummary(); loadHistory(24); loadEvents();
+  }
+  if (tab === 'energy') { loadEnergy(30); loadReport(); }
+  if (tab === 'devices') { loadAppliances(false); loadOverview(); }
+  if (tab === 'setup') {
+    if ($('share-btns')) $('share-btns').innerHTML = Object.keys(S.presence || {}).filter((p) => { try { return p !== localStorage.getItem('me'); } catch (_) { return true; } })
+      .map((p) => `<button class="small primary" onclick="shareWith('${esc(p)}')">Share with ${esc(p)}</button>`).join('');
+    fillFix(); loadSetup(); loadVersion(); loadTariffForm(); loadRouter(); loadPush();
+    setTimeout(settingStatuses, 1500);
+  }
+}
+// Settings: a one-word status next to each connection so it reads like a proper settings list
+function settingStatuses() {
+  const vis = (id) => $(id) && $(id).style.display !== 'none';
+  const set = (k, ok, text) => { const el = $('st-' + k); if (el) { el.textContent = text || (ok ? 'Connected' : 'Not set up'); el.className = 'status ' + (ok ? 'ok' : 'off'); } };
+  set('hive', vis('hive-done')); set('tuya', vis('tuya-done')); set('bright', vis('bright-done')); set('cl', vis('cl-done'));
+  set('tariff', true, 'From your meter');
+  const rs = ($('router-status') || {}).textContent || '';
+  set('router', /report|seen|ago|now/i.test(rs), /report|seen|ago|now/i.test(rs) ? 'Reporting' : 'Not set up');
+  set('own', false, 'Optional'); set('hooks', false, 'Optional');
+  const pushOn = 'Notification' in window && Notification.permission === 'granted';
+  set('push', pushOn, pushOn ? 'On' : 'Off');
+  set('share', true, ''); set('fix', true, ''); set('diag', true, ''); set('inst', true, '');
+  set('upd', true, (($('version') || {}).textContent || '').replace('Version ', ''));
 }
 
 // ---------- home ----------
@@ -50,11 +71,26 @@ async function load() {
   loadComfort();
   loadThermal();
   loadCosts();
+  loadToday();
   if (!window._feelChecked) {
     window._feelChecked = true;
     if (location.search.includes('feel=1')) { feelOverlay(); history.replaceState(null, '', '/'); }
     claimPhone();
   }
+}
+async function loadToday() {
+  // Home "Today": next heating change, kids' usual wake time, washing / dehumidifier in one glance
+  let d;
+  try { d = await api('/api/simple'); } catch (_) { return; }
+  const rows = [];
+  if (d.next) rows.push(['🔥', d.next]);
+  (d.schedule || []).filter((b) => b.now).forEach((b) => rows.push(['🔥', `Heating period now: ${b.from}–${b.to} at ${b.temp}°`]));
+  (d.appliances || []).filter((a) => a.running).forEach((a) => rows.push(['🧺', `${a.name}: ${a.text}`]));
+  const alerts = [];
+  (d.dehumidifiers || []).forEach((x) => (x.alert ? alerts : rows).push(['💧', `${x.name}: ${x.text}`]));
+  $('today-card').style.display = rows.length ? 'block' : 'none';
+  $('today').innerHTML = rows.map(([i, t]) => `<div class="line"><span>${i}</span><span>${esc(t)}</span></div>`).join('');
+  $('attention').innerHTML = alerts.map(([i, t]) => `<div class="banner">${i} ${esc(t)}</div>`).join('');
 }
 async function loadCosts() {
   let c;
@@ -95,7 +131,8 @@ function render() {
   $('heat-ok').style.display = h.connected ? 'block' : 'none';
   if (h.connected) {
     $('indoor').textContent = h.indoor_temp != null ? h.indoor_temp.toFixed(1) + '°' : '–';
-    if (pendingTarget === null) $('target').textContent = h.target_temp != null ? h.target_temp.toFixed(1) + '°' : '–';
+    // Hive's "off" between heating periods is a frost setting (usually 7°) – say Off rather than a confusing 7°
+    if (pendingTarget === null) $('target').innerHTML = h.target_temp == null ? '–' : h.target_temp <= 12 ? `Off <span class="muted" style="font-size:13px">(${h.target_temp.toFixed(0)}°)</span>` : h.target_temp.toFixed(1) + '°';
     $('boiler').textContent = h.boiler_on ? '🔥 Heating' : 'Idle';
     $('boiler').className = 'pill' + (h.boiler_on ? ' on' : '');
     const modes = {SCHEDULE: 'On schedule', MANUAL: 'Manual', OFF: 'Off', BOOST: `Boost · ${h.boost_minutes} min left`};
@@ -114,7 +151,7 @@ function render() {
       (w.solar > 50 ? ` · ☀️ sun` : '');
   }
 
-  // Home only shows problems that affect it right now (heating / lights). Others appear on the Summary tab.
+  // Home only shows problems that affect it right now (heating / lights). Others appear on Insights.
   const errs = Object.entries(S.errors || {}).filter(([k]) => k === 'hive' || k === 'tuya');
   $('errors').innerHTML = errs.length ? `<div class="card err">${errs.map(([k, v]) => `<b>${esc(k)}</b>: ${esc(v)}`).join('<br>')}</div>` : '';
 
@@ -130,7 +167,7 @@ function render() {
     : ls.someone_in ? `💡 Someone's in – ${esc(ls.why)}`
     : ls.ignored && ls.ignored.length ? `Flat empty · ${esc(ls.ignored.join(', '))} left on (ignored – not touched since you left)`
     : 'Flat empty';
-  $('devices').innerHTML = S.tuya_configured ? devicesHtml() : "Smart Life isn't connected yet – go to Setup.";
+  $('devices').innerHTML = S.tuya_configured ? devicesHtml() : "Smart Life isn't connected yet – open ⚙️ Settings.";
 }
 
 let showHidden = false;
@@ -368,12 +405,20 @@ async function loadPlan() {
   const left = Math.max(0, Math.ceil(PLAN.learning_target - PLAN.learning_days));
   $('plan-status').innerHTML = (PLAN.active ? '' : `<b>Draft – still learning</b> (day ${Math.floor(PLAN.learning_days)} of ${PLAN.learning_target}, runs for real in ${left} day${left === 1 ? '' : 's'}). `) +
     'Each day only uses what it has seen on that same day of the week.';
-  const ticks = '<div class="row muted" style="font-size:11px;margin:0 0 2px 54px"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>';
+  const ticks = '<div class="wk" style="padding:0"><div class="wk-l"></div><div class="wk-b row muted" style="font-size:11px"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div><div class="wk-n"></div></div>';
   $('plan-week').innerHTML = ticks + PLAN.days.map((d, i) =>
-    `<div style="margin:8px 0;cursor:pointer" onclick="planDay=${i};renderPlanDay()">
-      ${planRow('<b style="color:var(--text)">' + esc(d.label) + '</b><br>Plan', `<div style="position:relative">${planBar(d.blocks, false, 14)}${wakeMark(d.wake, 14)}</div>`, calibDot(d.seen >= 3 ? 'ok' : d.seen ? 'learning' : 'none') + d.seen)}
-      ${planRow('Hive', planBar(d.hive, true, 6), '')}</div>`).join('') +
-    '<div class="muted" style="font-size:12px;margin-top:6px"><span style="color:#7cc4ff">┃</span> kids usually up (faint = not learned yet, 06:30 assumed) · <b>Plan</b> = what the app would do · <b>Hive</b> = your Hive schedule right now<br><span style="color:#ff7a2f">■</span> heating on, 20.5° or warmer &nbsp; <span style="color:#f0a04b">■</span> heating on, below 20.5° &nbsp; <span style="color:#4a5060">■</span> off – kept at 16° (Hive: its own low/off setting) &nbsp; ▨ no data yet · number = days of data for that weekday</div>';
+    `<div class="wk" onclick="planDay=${i};renderPlanDay();$('plan-day').scrollIntoView({behavior:'smooth'})">
+      <div class="wk-l">${esc(d.label)}</div>
+      <div class="wk-b"><div style="position:relative">${planBar(d.blocks, false, 14)}${wakeMark(d.wake, 14)}</div><div style="margin-top:3px">${planBar(d.hive, true, 5)}</div></div>
+      <div class="wk-n">${calibDot(d.seen >= 3 ? 'ok' : d.seen ? 'learning' : 'none')}${d.seen}</div></div>`).join('') +
+    `<div class="key">
+      <div><i style="background:#ff7a2f"></i>Heating on, 20.5° or warmer</div>
+      <div><i style="background:#f0a04b"></i>Heating on, below 20.5°</div>
+      <div><i style="background:#2a2f3a"></i>Off – kept at 16°</div>
+      <div><i style="background:repeating-linear-gradient(45deg,#1b1f27 0 3px,#3a4050 3px 6px)"></i>No data yet</div>
+      <div><i style="background:#7cc4ff;width:3px"></i>Kids usually up (faint = still learning, 06:30 assumed)</div>
+      <div class="muted">Thick bar = the app's plan · thin bar = your Hive schedule now · number = days of data for that weekday. Tap a day for details.</div>
+    </div>`;
   renderPlanDay();
   renderRecent();
   renderCalib();
@@ -644,7 +689,7 @@ async function loadEnergy(days) {
       (el.breakeven_share != null ? ` (you need more than ${pct(el.breakeven_share)} for Economy 7 to pay off at these prices).` : '.') +
       (el.days_covered < 14 ? `<br><b>Only ${el.days_covered} days of data – treat this as a rough guide for now.</b>` : '') +
       `<br>${el.days_covered} days of data: ${el.total_kwh} kWh · Economy 7 ${gbp(el.cost_e7)} vs single rate ${gbp(el.cost_single)} (incl. standing charges).` +
-      `<br><span style="font-size:12px">Based on the prices in Setup → Your tariff – check they match your bill.</span>`;
+      `<br><span style="font-size:12px">Based on the prices in Settings → Tariff – check they match your bill.</span>`;
     $('baseload').innerHTML = `<div class="big" style="font-size:36px">${el.baseload_w} W</div>
       <div class="muted">is running all the time (fridge, router, standby…). That's roughly <b>${gbp(el.baseload_cost_year)}/year</b>.
       Under 100 W is good for a flat; anything much higher is worth hunting down with a smart plug.</div>`;

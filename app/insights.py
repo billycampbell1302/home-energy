@@ -30,9 +30,9 @@ def build(hive_ok: bool, tuya_ok: bool, errors: dict | None = None) -> list:
 
     # ---------- setup ----------
     if not hive_ok:
-        add("todo", "Connect Hive", "Setup → Hive heating. Nothing can be learned about the heating until it's connected.")
+        add("todo", "Connect Hive", "Settings → Hive heating. Nothing can be learned about the heating until it's connected.")
     if not bright.is_configured():
-        add("todo", "Connect your smart meter", "Setup → Smart meter (Bright).")
+        add("todo", "Connect your smart meter", "Settings → Smart meter (Bright).")
     with db._lock:
         presence_events = db._conn.execute("SELECT COUNT(*) FROM events WHERE kind='presence'").fetchone()[0]
     if presence_events == 0:

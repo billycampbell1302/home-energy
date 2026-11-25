@@ -15,14 +15,13 @@
 <body>
 <header>
   <h1 id="title">Home</h1>
-  <div style="display:flex;gap:12px;align-items:center">
+  <div class="header-right">
     <small id="updated"></small>
-    <button class="small" id="gear" onclick="showTab('setup')" aria-label="Setup" style="font-size:18px;padding:6px 10px">⚙️</button>
+    <button class="icon" id="gear" onclick="showTab('setup')" aria-label="Settings">⚙️</button>
   </div>
 </header>
 
 <main>
-  <!-- HOME -->
   <section class="tab" id="tab-simple">
     <div class="card">
       <div class="row"><h2>Heating</h2><span class="pill" id="s-state"></span></div>
@@ -61,13 +60,13 @@
     <p class="muted" style="text-align:center;font-size:12px"><a href="#" onclick="fullApp();return false" style="color:inherit">Show full app</a></p>
   </section>
 
+  <!-- HOME: what matters right now -->
   <section class="tab active" id="tab-home">
     <div id="errors"></div>
-
-
-    <div class="card" id="heat-card">
+    <div id="attention"></div>
+<div class="card" id="heat-card">
       <h2>Heating</h2>
-      <div id="heat-none" class="muted">Hive isn't connected yet – go to Setup.</div>
+      <div id="heat-none" class="muted">Hive isn't connected yet – open ⚙️ Settings.</div>
       <div id="heat-ok" style="display:none">
         <div class="row">
           <div>
@@ -111,129 +110,78 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="today-card" style="display:none">
+      <h2>Today</h2>
+      <div id="today"></div>
+    </div>
+
+<div class="card">
       <h2>Who's home</h2>
       <div id="people" class="wrap"></div>
       <div class="muted" id="lights-signal" style="margin-top:10px"></div>
     </div>
 
-    <div class="card full-only" id="costs-card" style="display:none">
+<div class="card" id="costs-card" style="display:none">
       <h2>Energy costs</h2>
       <div id="costs"></div>
     </div>
   </section>
 
-  <!-- SUMMARY -->
-  <section class="tab" id="tab-summary">
-    <div class="card">
-      <h2>Learning</h2>
-      <div id="learning" class="muted">Loading…</div>
-    </div>
-
-    <div class="card">
-      <div class="row"><h2>Smart heating report</h2>
-        <select id="sr-days" style="width:auto" onchange="loadSmartReport()"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="365">Year</option></select></div>
-      <div id="smart-report" class="muted">Loading…</div>
-    </div>
-
-    <div class="card">
-      <h2>How your flat heats</h2>
-      <div id="thermal" class="muted">Loading…</div>
-    </div>
-
-    <div class="card">
-      <h2>Comfortable temperatures</h2>
-      <div id="comfort-table" class="muted">Loading…</div>
-    </div>
-    <div class="card">
-      <h2>This month</h2>
-      <div id="report" class="muted">Loading…</div>
-    </div>
-    <div class="card">
-      <h2>What it's found</h2>
-      <div id="summary" class="muted">Loading…</div>
-    </div>
-  </section>
-
-  <!-- DEVICES -->
+  <!-- PLAN: what it will do -->
   <section class="tab" id="tab-plan">
-    <div class="card">
+<div class="card">
       <h2>The week ahead</h2>
       <div id="plan-status" class="muted">Loading…</div>
       <div id="plan-week" style="margin-top:10px"></div>
     </div>
-    <div class="card">
-      <h2>What's calibrated</h2>
-      <div id="plan-calib"></div>
-    </div>
-    <div class="card">
+<div class="card">
       <div id="plan-days" class="wrap" style="margin-bottom:10px"></div>
       <div id="plan-day"></div>
     </div>
-    <div class="card">
-      <h2>Untypical days</h2>
-      <p class="muted" style="font-size:13px">Bank holidays and days that look nothing like a usual one (annual leave, sick days, days away) are left out of the learning automatically. Tap a day to change it.</p>
-      <div id="plan-recent"></div>
-    </div>
   </section>
 
-  <section class="tab" id="tab-devices">
-    <div class="card">
-      <div class="row">
-        <div>
-          <div>Guests staying / someone in without a phone</div>
-          <div class="muted">Only needed if nobody's phone is home and no lights are on. Turns itself off when someone arrives.</div>
-        </div>
-        <button id="hold" onclick="toggleHold()">Off</button>
-      </div>
+  <!-- INSIGHTS: what it has learned and what happened -->
+  <section class="tab" id="tab-insights">
+    <div class="section-title">Learning</div>
+<div class="card">
+      <h2>Learning</h2>
+      <div id="learning" class="muted">Loading…</div>
     </div>
-    <div class="card" id="phones-card" style="display:none">
-      <h2>Phones</h2>
-      <div id="phones"></div>
+<div class="card">
+      <h2>What's calibrated</h2>
+      <div id="plan-calib"></div>
     </div>
-
-    <div class="card" id="heat-dev-card" style="display:none">
-      <h2>Heating</h2>
-      <div id="heat-dev"></div>
+<div class="card">
+      <h2>Comfortable temperatures</h2>
+      <div id="comfort-table" class="muted">Loading…</div>
     </div>
-
-    <div class="card" id="tv-card" style="display:none">
-      <h2>TV &amp; streaming</h2>
-      <div id="tv-devs"></div>
+<div class="card">
+      <h2>How your flat heats</h2>
+      <div id="thermal" class="muted">Loading…</div>
     </div>
-
-    <div class="card" id="kids-dev-card" style="display:none">
-      <h2>Kids' devices</h2>
-      <div id="kids-devs"></div>
-    </div>
-
-    <div class="card" id="appl-card" style="display:none">
-      <h2>Appliances</h2>
-      <div id="appliances"></div>
-    </div>
-
-    <div class="card">
-      <h2>Lights &amp; Smart Life</h2>
-      <div id="devices" class="muted">Smart Life isn't connected yet – go to Setup.</div>
-    </div>
-
-    <div class="card" id="other-card" style="display:none">
-      <h2>Other Wi-Fi devices</h2>
-      <p class="muted" style="font-size:13px">Not used by the app. To use one, give it a role in ⚙️ → Router.</p>
-      <div id="other-devs"></div>
-    </div>
-  </section>
-
-  <!-- HISTORY -->
-  <section class="tab" id="tab-history">
-    </div>
-    <div class="card">
+<div class="card">
       <h2>Your routine (what it's learned)</h2>
       <p class="muted" id="routine-meta"></p>
       <div id="routine"></div>
       <p class="muted" style="font-size:12px">Each square is one hour of the week. Darker = more often. Built from the arrive/leave shortcuts and the readings every 5 minutes over the last 4 weeks.</p>
     </div>
-    <div class="card">
+<div class="card">
+      <h2>Untypical days</h2>
+      <p class="muted" style="font-size:13px">Bank holidays and days that look nothing like a usual one (annual leave, sick days, days away) are left out of the learning automatically. Tap a day to change it.</p>
+      <div id="plan-recent"></div>
+    </div>
+    <div class="section-title">Results</div>
+<div class="card">
+      <div class="row"><h2>Smart heating report</h2>
+        <select id="sr-days" style="width:auto" onchange="loadSmartReport()"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="365">Year</option></select></div>
+      <div id="smart-report" class="muted">Loading…</div>
+    </div>
+<div class="card">
+      <h2>What it's found</h2>
+      <div id="summary" class="muted">Loading…</div>
+    </div>
+    <div class="section-title">History</div>
+<div class="card">
       <h2>Temperatures</h2>
       <div class="wrap" style="margin-bottom:8px">
         <button class="small" onclick="loadHistory(24)">24 h</button>
@@ -253,17 +201,21 @@
       <p class="muted" id="boiler-hours"></p>
       <p class="muted" id="import-status" style="font-size:12px"></p>
     </div>
-    <div class="card">
+<div class="card">
       <h2>Activity</h2>
       <div id="events" class="muted"></div>
     </div>
   </section>
 
-  <!-- ENERGY -->
+  <!-- ENERGY: money and meter -->
   <section class="tab" id="tab-energy">
+<div class="card">
+      <h2>This month</h2>
+      <div id="report" class="muted">Loading…</div>
+    </div>
     <div class="card" id="energy-none" style="display:none">
       <h2>Smart meter</h2>
-      <p class="muted">Connect your Bright account on the Setup page to see your electricity and gas use here.</p>
+      <p class="muted">Connect your Bright account in ⚙️ Settings to see your electricity and gas use here.</p>
     </div>
     <div id="energy-ok" style="display:none">
       <div class="wrap" style="margin-bottom:10px">
@@ -305,10 +257,59 @@
     </div>
   </section>
 
-  <!-- SETUP -->
-  <section class="tab" id="tab-setup">
+  <section class="tab" id="tab-devices">
     <div class="card">
-      <h2>1 · Hive heating</h2>
+      <div class="row">
+        <div>
+          <div>Guests staying / someone in without a phone</div>
+          <div class="muted">Only needed if nobody's phone is home and no lights are on. Turns itself off when someone arrives.</div>
+        </div>
+        <button id="hold" onclick="toggleHold()">Off</button>
+      </div>
+    </div>
+    <div class="card" id="phones-card" style="display:none">
+      <h2>Phones</h2>
+      <div id="phones"></div>
+    </div>
+
+    <div class="card" id="heat-dev-card" style="display:none">
+      <h2>Heating</h2>
+      <div id="heat-dev"></div>
+    </div>
+
+    <div class="card" id="tv-card" style="display:none">
+      <h2>TV &amp; streaming</h2>
+      <div id="tv-devs"></div>
+    </div>
+
+    <div class="card" id="kids-dev-card" style="display:none">
+      <h2>Kids' devices</h2>
+      <div id="kids-devs"></div>
+    </div>
+
+    <div class="card" id="appl-card" style="display:none">
+      <h2>Appliances</h2>
+      <div id="appliances"></div>
+    </div>
+
+    <div class="card">
+      <h2>Lights &amp; Smart Life</h2>
+      <div id="devices" class="muted">Smart Life isn't connected yet – open ⚙️ Settings.</div>
+    </div>
+
+    <div class="card" id="other-card" style="display:none">
+      <h2>Other Wi-Fi devices</h2>
+      <p class="muted" style="font-size:13px">Not used by the app. To use one, give it a role in ⚙️ → Router.</p>
+      <div id="other-devs"></div>
+    </div>
+  </section>
+
+  <!-- SETTINGS -->
+  <section class="tab" id="tab-setup">
+    <div class="section-title">Connections</div>
+    <details class="card setting" id="set-hive">
+      <summary><span>🔥 Hive heating</span><span class="status" id="st-hive"></span></summary>
+      <div class="setting-body">
       <div id="hive-done" style="display:none">
         <div class="ok">✓ Connected</div>
         <p class="muted" style="margin-bottom:4px">Thermostats on your Hive account – the dashboard uses the ticked one:</p>
@@ -326,10 +327,11 @@
         </div>
         <p id="hive-msg" class="err"></p>
       </div>
-    </div>
-
-    <div class="card">
-      <h2>2 · Smart Life (lights)</h2>
+          </div>
+    </details>
+    <details class="card setting" id="set-tuya">
+      <summary><span>💡 Smart Life</span><span class="status" id="st-tuya"></span></summary>
+      <div class="setting-body">
       <div id="tuya-done" class="ok" style="display:none">✓ Connected</div>
       <div id="tuya-form">
         <p class="muted">Smart Life app → Me → ⚙ → Account and Security → User Code.</p>
@@ -342,22 +344,11 @@
         </div>
         <p id="tuya-msg" class="err"></p>
       </div>
-    </div>
-
-    <div class="card">
-      <h2>3 · Arrive / leave shortcuts</h2>
-      <p class="muted">On each iPhone: Shortcuts app → Automation → + → <b>Arrive</b> → choose Home → <b>Run Immediately</b> → add action <b>Get Contents of URL</b> → paste the Arrive link. Repeat with <b>Leave</b> and the Leave link.</p>
-      <div id="hooks"></div>
-    </div>
-
-    <div class="card">
-      <h2>3b · Location – "home in X min" (OwnTracks)</h2>
-      <p class="muted">Free app, no account, sends the phone's location only to this server. On each iPhone: install <b>OwnTracks</b> from the App Store → tap <b>(i)</b> → <b>Settings</b>: Mode <b>HTTP</b>, URL = that person's link below (leave user/password empty) → back on the map, set the monitoring mode (top-left icon) to <b>Significant</b> (low battery). Allow location <b>Always</b> when asked.</p>
-      <div id="owntracks"></div>
-    </div>
-
-    <div class="card">
-      <h2>4 · Smart meter (Bright)</h2>
+          </div>
+    </details>
+    <details class="card setting" id="set-bright">
+      <summary><span>⚡ Smart meter (Bright)</span><span class="status" id="st-bright"></span></summary>
+      <div class="setting-body">
       <div id="bright-done" class="ok" style="display:none">✓ Connected</div>
       <div id="bright-form">
         <p class="muted">The email and password you use for the Bright app.</p>
@@ -366,38 +357,21 @@
         <button class="primary" onclick="brightLogin()">Connect</button>
         <p id="bright-msg" class="err"></p>
       </div>
-    </div>
-
-    <div class="card">
-      <h2>5 · Your tariff</h2>
+          </div>
+    </details>
+    <details class="card setting" id="set-tariff">
+      <summary><span>💷 Tariff</span><span class="status" id="st-tariff"></span></summary>
+      <div class="setting-body">
       <p class="muted">Prices are read from your meter automatically every few hours and updated when they change. You only need to set the cheap-hours times and the single-rate price to compare against.</p>
       <button onclick="tariffFromMeter()" style="margin-bottom:8px">Fill in from my meter</button>
       <p class="muted" id="meter-tariff-msg"></p>
       <div id="tariff-form"></div>
       <button class="primary" onclick="saveTariff()">Save tariff</button>
-    </div>
-
-    <div class="card">
-      <h2>6 · Washer-dryer (ConnectLife)</h2>
-      <div id="cl-done" class="ok" style="display:none">✓ Connected</div>
-      <div id="cl-form">
-        <p class="muted">The email and password you use for the ConnectLife app.</p>
-        <input id="cl-user" type="email" placeholder="ConnectLife email" autocomplete="off">
-        <input id="cl-pass" type="password" placeholder="ConnectLife password" autocomplete="off">
-        <button class="primary" onclick="clLogin()">Connect</button>
-        <p id="cl-msg" class="err"></p>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Notifications</h2>
-      <p class="muted" id="push-status"></p>
-      <button class="primary" id="push-btn" onclick="enablePush()">Turn on notifications</button>
-      <div id="push-settings" style="margin-top:10px"></div>
-    </div>
-
-    <div class="card">
-      <h2>7 · Router (Wi-Fi presence &amp; Fire Sticks)</h2>
+          </div>
+    </details>
+    <details class="card setting" id="set-router">
+      <summary><span>📶 Router</span><span class="status" id="st-router"></span></summary>
+      <div class="setting-body">
       <p class="muted" id="router-status"></p>
       <div id="router-setup">
         <p class="muted">One-off: on the iPad, open your router's admin page (usually <b>192.168.1.1</b>), log in, then go to
@@ -406,11 +380,61 @@
         <button class="small" onclick="navigator.clipboard.writeText($('router-cron').textContent).then(()=>toast('Copied'))">Copy</button>
       </div>
       <div id="router-devices" style="margin-top:10px"></div>
-    </div>
+          </div>
+    </details>
+    <details class="card setting" id="set-cl">
+      <summary><span>🧺 Washer-dryer</span><span class="status" id="st-cl"></span></summary>
+      <div class="setting-body">
+      <div id="cl-done" class="ok" style="display:none">✓ Connected</div>
+      <div id="cl-form">
+        <p class="muted">The email and password you use for the ConnectLife app.</p>
+        <input id="cl-user" type="email" placeholder="ConnectLife email" autocomplete="off">
+        <input id="cl-pass" type="password" placeholder="ConnectLife password" autocomplete="off">
+        <button class="primary" onclick="clLogin()">Connect</button>
+        <p id="cl-msg" class="err"></p>
+      </div>
+          </div>
+    </details>
+    <details class="card setting" id="set-own">
+      <summary><span>📍 Location</span><span class="status" id="st-own"></span></summary>
+      <div class="setting-body">
+      <p class="muted">Free app, no account, sends the phone's location only to this server. On each iPhone: install <b>OwnTracks</b> from the App Store → tap <b>(i)</b> → <b>Settings</b>: Mode <b>HTTP</b>, URL = that person's link below (leave user/password empty) → back on the map, set the monitoring mode (top-left icon) to <b>Significant</b> (low battery). Allow location <b>Always</b> when asked.</p>
+      <div id="owntracks"></div>
+          </div>
+    </details>
+    <details class="card setting" id="set-hooks">
+      <summary><span>📲 Arrive/leave shortcuts</span><span class="status" id="st-hooks"></span></summary>
+      <div class="setting-body">
+      <p class="muted">On each iPhone: Shortcuts app → Automation → + → <b>Arrive</b> → choose Home → <b>Run Immediately</b> → add action <b>Get Contents of URL</b> → paste the Arrive link. Repeat with <b>Leave</b> and the Leave link.</p>
+      <div id="hooks"></div>
+          </div>
+    </details>
 
-    <div class="card">
-      <h2>Fix a mistake – who was home</h2>
-      <p class="muted" style="font-size:13px">Showed someone home (or out) when they weren't? Say when it really happened and the history is corrected from then.</p>
+    <div class="section-title">Notifications</div>
+    <details class="card setting" id="set-push">
+      <summary><span>🔔 Notifications</span><span class="status" id="st-push"></span></summary>
+      <div class="setting-body">
+      <p class="muted" id="push-status"></p>
+      <button class="primary" id="push-btn" onclick="enablePush()">Turn on notifications</button>
+      <div id="push-settings" style="margin-top:10px"></div>
+          </div>
+    </details>
+
+    <div class="section-title">Family</div>
+    <details class="card setting" id="set-share">
+      <summary><span>👥 Share with Katie</span><span class="status" id="st-share"></span></summary>
+      <div class="setting-body">
+      <p class="muted" style="font-size:13px">A personal link to a simple version of the app: heating, boost, how it feels, who's home. No settings, no charts. Her comfort check-ins go to her phone.</p>
+      <div class="wrap" id="share-btns"></div>
+      <div id="share-out" style="margin-top:8px"></div>
+          </div>
+    </details>
+
+    <div class="section-title">Tools</div>
+    <details class="card setting" id="set-fix">
+      <summary><span>✏️ Fix a mistake – who was home</span><span class="status" id="st-fix"></span></summary>
+      <div class="setting-body">
+      <p class="muted">Showed someone home (or out) when they weren't? Say when it really happened and the history is corrected from then.</p>
       <div class="wrap">
         <select id="fix-person" style="width:auto"></select>
         <select id="fix-home" style="width:auto"><option value="0">left at</option><option value="1">arrived at</option></select>
@@ -418,42 +442,40 @@
         <select id="fix-day" style="width:auto"></select>
         <button class="primary" onclick="fixPresence()">Save</button>
       </div>
-    <div class="card">
-      <h2>Share with Katie</h2>
-      <p class="muted" style="font-size:13px">A personal link to a simple version of the app: heating, boost, how it feels, who's home. No settings, no charts. Her comfort check-ins go to her phone.</p>
-      <div class="wrap" id="share-btns"></div>
-      <div id="share-out" style="margin-top:8px"></div>
-    </div>
-
-    <div class="card">
-      <h2>Diagnostics for Claude</h2>
+          </div>
+    </details>
+    <details class="card setting" id="set-diag">
+      <summary><span>🩺 Diagnostics for Claude</span><span class="status" id="st-diag"></span></summary>
+      <div class="setting-body">
       <p class="muted">Something not right? Tap Copy, then paste it into your chat with Claude. No passwords, tokens or locations are included.</p>
       <button class="primary" onclick="copyDiag()">Copy diagnostics</button>
       <pre id="diag" style="font-size:11px;white-space:pre-wrap;display:none;max-height:300px;overflow:auto"></pre>
-    </div>
-
-    <div class="card">
-      <h2>App updates</h2>
+          </div>
+    </details>
+    <details class="card setting" id="set-upd">
+      <summary><span>⬆️ App updates</span><span class="status" id="st-upd"></span></summary>
+      <div class="setting-body">
       <p class="muted" id="version">Version …</p>
       <button class="primary" id="update-btn" onclick="checkUpdates()">Check for updates now</button>
       <p class="muted" id="update-msg"></p>
-    </div>
-
-    <div class="card">
-      <h2>Add to home screen</h2>
+          </div>
+    </details>
+    <details class="card setting" id="set-inst">
+      <summary><span>📱 Install & log out</span><span class="status" id="st-inst"></span></summary>
+      <div class="setting-body">
       <p class="muted">In Safari tap Share → <b>Add to Home Screen</b>. It then opens like a normal app.</p>
       <button class="small" onclick="api('/api/logout',{}).then(()=>location.href='/login')">Log out</button>
-    </div>
+          </div>
+    </details>
   </section>
 </main>
 
 <nav>
   <button class="active" data-tab="home"><span>🏠</span>Home</button>
-  <button data-tab="summary"><span>📋</span>Summary</button>
   <button data-tab="plan"><span>🗓️</span>Plan</button>
+  <button data-tab="insights"><span>💡</span>Insights</button>
   <button data-tab="energy"><span>⚡</span>Energy</button>
-  <button data-tab="history"><span>📈</span>History</button>
-  <button data-tab="devices"><span>💡</span>Devices</button>
+  <button data-tab="devices"><span>🔌</span>Devices</button>
 </nav>
 <div class="toast" id="toast"></div>
 

@@ -1121,7 +1121,7 @@ def energy(days: int = 30):
 @app.get("/api/tariff/from-meter")
 async def tariff_from_meter():
     if not bright.is_configured():
-        raise HTTPException(400, "Connect Bright first (Setup → Smart meter).")
+        raise HTTPException(400, "Connect Bright first (Settings → Smart meter).")
     try:
         return await asyncio.to_thread(bright.meter_tariff)
     except Exception as e:
