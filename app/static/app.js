@@ -300,7 +300,7 @@ async function loadPlan() {
     `<div style="margin:8px 0;cursor:pointer" onclick="planDay=${i};renderPlanDay()">
       ${planRow('<b style="color:var(--text)">' + esc(d.label) + '</b><br>Plan', planBar(d.blocks, false, 14), calibDot(d.seen >= 3 ? 'ok' : d.seen ? 'learning' : 'none') + d.seen)}
       ${planRow('Hive', planBar(d.hive, true, 6), '')}</div>`).join('') +
-    '<div class="muted" style="font-size:12px;margin-top:6px"><b>Plan</b> = what the app would do · <b>Hive</b> = your Hive schedule right now<br><span style="color:#ff7a2f">■</span> heating on &nbsp; <span style="color:#f0a04b">■</span> mild &nbsp; <span style="color:#4a5060">■</span> off / low &nbsp; ▨ no data yet · number = days of data</div>';
+    '<div class="muted" style="font-size:12px;margin-top:6px"><b>Plan</b> = what the app would do · <b>Hive</b> = your Hive schedule right now<br><span style="color:#ff7a2f">■</span> heating on, 20.5° or warmer &nbsp; <span style="color:#f0a04b">■</span> heating on, below 20.5° &nbsp; <span style="color:#4a5060">■</span> off – kept at 16° (Hive: its own low/off setting) &nbsp; ▨ no data yet · number = days of data for that weekday</div>';
   renderPlanDay();
   renderRecent();
   renderCalib();
