@@ -319,8 +319,8 @@ function renderPlanDay() {
   if (!d.days_seen) {
     html += `<p class="muted">No data for ${esc(d.plural)} yet – this fills in after the first one. Until then your Hive schedule runs as normal.</p>`;
   } else {
-    html += `<div class="muted" style="font-size:13px">Based on ${d.days_seen} ${esc(d.plural)} · covers ${d.known_hours} of 24 h so far` +
-      (d.known_hours >= 23 ? ` · plan heats about <b>${d.warm_hours} h</b> vs Hive ${d.hive_hours} h` : '') + '</div>';
+    html += `<div class="muted" style="font-size:13px">Based on ${d.days_seen} ${esc(d.days_seen === 1 ? d.plural.slice(0, -1) : d.plural)} · covers ${d.known_hours} of 24 h so far` +
+      (d.known_hours >= 23 ? ` · warm for <b>${d.warm_hours} h</b> vs ${d.hive_hours} h on your Hive schedule (the boiler only fires when it drops below)` : '') + '</div>';
     html += d.blocks.map((b) => `<div style="padding:8px 0;border-top:1px solid var(--line);margin-top:8px">
         <div class="row"><b>${b.from}–${b.to === '00:00' ? '24:00' : b.to}</b><span class="pill ${b.warm ? 'on' : ''}">${b.state === 'nodata' ? 'no data' : b.warm ? b.target + '°' : 'low ' + b.target + '°'}</span></div>
         ${b.state === 'warm' || b.state === 'low' ? `<div style="margin-top:4px">${whoLine(b)}</div>` : ''}
