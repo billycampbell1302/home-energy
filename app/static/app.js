@@ -38,8 +38,7 @@ function onTab(tab) {
   if (b.dataset.tab === 'energy') loadEnergy(30);
   if (tab === 'devices') { loadAppliances(false); loadOverview(); }
   if (tab === 'plan') loadPlan();
-  if (tab === 'history') fillFix();
-  if (b.dataset.tab === 'setup') { loadSetup(); loadVersion(); loadTariffForm(); loadRouter(); loadPush(); }
+  if (b.dataset.tab === 'setup') { fillFix(); loadSetup(); loadVersion(); loadTariffForm(); loadRouter(); loadPush(); }
 }
 
 // ---------- home ----------

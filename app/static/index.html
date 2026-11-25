@@ -188,16 +188,6 @@
 
   <!-- HISTORY -->
   <section class="tab" id="tab-history">
-    <div class="card">
-      <h2>Fix a mistake</h2>
-      <p class="muted" style="font-size:13px">Showed someone home (or out) when they weren't? Say when it really happened and the history is corrected from then.</p>
-      <div class="wrap">
-        <select id="fix-person" style="width:auto"></select>
-        <select id="fix-home" style="width:auto"><option value="0">left at</option><option value="1">arrived at</option></select>
-        <input id="fix-time" type="time" style="width:auto" value="08:00">
-        <select id="fix-day" style="width:auto"></select>
-        <button class="primary" onclick="fixPresence()">Save</button>
-      </div>
     </div>
     <div class="card">
       <h2>Your routine (what it's learned)</h2>
@@ -380,6 +370,16 @@
       <div id="router-devices" style="margin-top:10px"></div>
     </div>
 
+    <div class="card">
+      <h2>Fix a mistake – who was home</h2>
+      <p class="muted" style="font-size:13px">Showed someone home (or out) when they weren't? Say when it really happened and the history is corrected from then.</p>
+      <div class="wrap">
+        <select id="fix-person" style="width:auto"></select>
+        <select id="fix-home" style="width:auto"><option value="0">left at</option><option value="1">arrived at</option></select>
+        <input id="fix-time" type="time" style="width:auto" value="08:00">
+        <select id="fix-day" style="width:auto"></select>
+        <button class="primary" onclick="fixPresence()">Save</button>
+      </div>
     <div class="card">
       <h2>Diagnostics for Claude</h2>
       <p class="muted">Something not right? Tap Copy, then paste it into your chat with Claude. No passwords, tokens or locations are included.</p>
