@@ -331,7 +331,7 @@ async function dayOverride(date, value) {
 }
 const CHIP_HELP = {
   person: (p) => `${p}'s phone was on the home Wi-Fi (or ${p} was marked home) for this share of the time, on the days seen. Phones count as out 10 minutes after leaving the Wi-Fi (30 at night).`,
-  kids: 'Signs the kids are up and about: a Fire Stick streaming, a kids\' tablet or console in use, or one of their lights switched on or changed from night red in the last 30 minutes. A light just left on doesn\'t count.',
+  kids: 'Signs the kids are up and about: a Fire Stick streaming, a kids\' tablet or console in use, or one of their lights switched on or changed from night red in the last 30 minutes. Only counts when at least one of you is home – the kids are never in on their own, so anything on while you\'re both out is just left on.',
   both: 'Both adults\' phones at home at the same time.',
   empty: 'Nobody\'s phone at home, no lights or TV in use, and the Guests switch off. This is what decides "low" – the heating stays down when the flat is usually empty.',
 };

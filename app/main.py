@@ -121,7 +121,9 @@ def poll_once():
             log.warning("dehumidifier: %s", e)
     from . import thermal
     try:
-        why = thermal._wake_signal_any()
+        # The kids are never home without one of you: with both phones out, anything on is just left on
+        adults_in = (row.get("people_home") or 0) > 0 or bool(db.get_state("hold", False))
+        why = thermal._wake_signal_any() if adults_in else None
         row.setdefault("extra", {})["kids_active"] = bool(why)
         if why:
             row["extra"]["kids_why"] = why

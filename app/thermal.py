@@ -609,8 +609,8 @@ def kids_morning(s: dict, home_now: list, hold: bool):
     now = datetime.now()
     warm_to = comfort.for_people(PEOPLE_ALL(), hour=7)["temp"]    # morning comfort for the household
 
-    # 1. They're up and it's cold → warm it now (works from day one)
-    w = detect_wake()
+    # 1. They're up and it's cold → warm it now (works from day one). Only with an adult home.
+    w = detect_wake() if (home_now or hold) else None
     if w and f["kids_wake"] and indoor < warm_to - 0.5 and mode != "BOOST" and (target or 0) < warm_to:
         hive.boost(60, warm_to)
         db.add_event("smart", {"kids_up": f"warming to {warm_to}° – kids up and it's {indoor}°"})

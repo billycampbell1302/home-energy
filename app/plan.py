@@ -97,6 +97,8 @@ def _occupancy() -> dict:
             e = json.loads(extra) if extra else {}
         except ValueError:
             e = {}
+        if "kids_active" in e and not ph:
+            e["kids_active"], e["kids_why"] = False, None     # nobody's phone home → kids not in (fixes older readings)
         if "kids_active" in e:
             a["kids_n"] += 1
             a["kids"] += int(bool(e["kids_active"]))
