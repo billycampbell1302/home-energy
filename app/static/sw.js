@@ -9,5 +9,11 @@ self.addEventListener('push', (e) => {
 });
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
-  e.waitUntil(self.clients.matchAll({type: 'window'}).then((cs) => cs.length ? cs[0].focus() : self.clients.openWindow(e.notification.data.url || '/')));
+  const url = (e.notification.data && e.notification.data.url) || '/';
+  e.waitUntil(self.clients.matchAll({type: 'window'}).then((cs) => {
+    if (!cs.length) return self.clients.openWindow(url);
+    // tell the open app what was tapped (e.g. the comfort check-in) and bring it forward
+    cs[0].postMessage({open: url});
+    return cs[0].focus();
+  }));
 });

@@ -79,7 +79,14 @@
       <div class="muted" id="lights-signal" style="margin-top:10px"></div>
     </div>
 
-    <div class="card" id="costs-card" style="display:none">
+    <div class="card simple-only" id="simple-push" style="display:none">
+      <h2>Notifications</h2>
+      <p class="muted">Lets it ask how warm it feels now and then (only when it helps), and tells you when the washing's done.</p>
+      <button class="primary" onclick="enablePush()">Turn on notifications</button>
+    </div>
+    <p class="simple-only muted" style="text-align:center;font-size:12px"><a href="#" onclick="fullApp();return false" style="color:inherit">Show full app</a></p>
+
+    <div class="card full-only" id="costs-card" style="display:none">
       <h2>Energy costs</h2>
       <div id="costs"></div>
     </div>
@@ -380,6 +387,13 @@
         <select id="fix-day" style="width:auto"></select>
         <button class="primary" onclick="fixPresence()">Save</button>
       </div>
+    <div class="card">
+      <h2>Share with Katie</h2>
+      <p class="muted" style="font-size:13px">A personal link to a simple version of the app: heating, boost, how it feels, who's home. No settings, no charts. Her comfort check-ins go to her phone.</p>
+      <div class="wrap" id="share-btns"></div>
+      <div id="share-out" style="margin-top:8px"></div>
+    </div>
+
     <div class="card">
       <h2>Diagnostics for Claude</h2>
       <p class="muted">Something not right? Tap Copy, then paste it into your chat with Claude. No passwords, tokens or locations are included.</p>

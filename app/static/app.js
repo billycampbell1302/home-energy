@@ -38,16 +38,23 @@ function onTab(tab) {
   if (b.dataset.tab === 'energy') loadEnergy(30);
   if (tab === 'devices') { loadAppliances(false); loadOverview(); }
   if (tab === 'plan') loadPlan();
-  if (b.dataset.tab === 'setup') { fillFix(); loadSetup(); loadVersion(); loadTariffForm(); loadRouter(); loadPush(); }
+  if (b.dataset.tab === 'setup') { if ($('share-btns')) $('share-btns').innerHTML = Object.keys(S.presence || {}).filter((p) => { try { return p !== localStorage.getItem('me'); } catch (_) { return true; } }).map((p) => `<button class="small primary" onclick="shareWith('${esc(p)}')">Share with ${esc(p)}</button>`).join(''); fillFix(); loadSetup(); loadVersion(); loadTariffForm(); loadRouter(); loadPush(); }
 }
 
 // ---------- home ----------
 async function load() {
+  applySimple();
   S = await api('/api/status');
   render();
   loadComfort();
   loadThermal();
   loadCosts();
+  if (!window._feelChecked) {
+    window._feelChecked = true;
+    if (location.search.includes('feel=1')) { feelOverlay(); history.replaceState(null, '', '/'); }
+    claimPhone();
+    if (isSimple() && $('simple-push')) $('simple-push').style.display = ('Notification' in window && Notification.permission === 'granted') ? 'none' : 'block';
+  }
 }
 async function loadCosts() {
   let c;
@@ -190,6 +197,41 @@ function nudge(delta) {
     finally { pendingTarget = null; render(); }
   }, 1200);
 }
+// ---------- simple mode (Katie's version) + "how does it feel?" from a notification ----------
+function isSimple() { try { return localStorage.getItem('simple') === '1'; } catch (_) { return false; } }
+function applySimple() {
+  document.body.classList.toggle('simple', isSimple());
+}
+function fullApp() { try { localStorage.removeItem('simple'); } catch (_) {} applySimple(); toast('Showing the full app'); }
+function feelOverlay() {
+  if (document.getElementById('feel-overlay')) return;
+  const o = document.createElement('div');
+  o.id = 'feel-overlay';
+  o.style.cssText = 'position:fixed;inset:0;background:rgba(10,12,16,.96);z-index:99;display:flex;flex-direction:column;justify-content:center;padding:24px;gap:14px';
+  const t = S && S.heating && S.heating.indoor_temp != null ? ` (${S.heating.indoor_temp.toFixed(1)}° now)` : '';
+  o.innerHTML = `<h2 style="text-align:center;margin:0 0 10px">How does it feel${t}?</h2>` +
+    [['cold', '🥶 Too cold'], ['ok', '👍 Just right'], ['warm', '🥵 Too warm']].map(([f, l]) =>
+      `<button style="font-size:22px;padding:22px;border-radius:16px" onclick="feel('${f}').then(() => document.getElementById('feel-overlay').remove())">${l}</button>`).join('') +
+    `<button class="small" style="margin-top:10px" onclick="document.getElementById('feel-overlay').remove()">Not now</button>`;
+  document.body.appendChild(o);
+}
+if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && String(e.data.open || '').includes('feel=1')) feelOverlay(); });
+async function claimPhone() {
+  // Tag this phone's notification subscription with whose phone it is (and simple mode)
+  try {
+    if (!('Notification' in window) || Notification.permission !== 'granted' || !navigator.serviceWorker) return;
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    let who = null; try { who = localStorage.getItem('me'); } catch (_) {}
+    if (sub && who) await api('/api/push/subscribe', {...sub.toJSON(), person: who, simple: isSimple()});
+  } catch (_) {}
+}
+async function shareWith(person) {
+  const r = await api('/api/share', {person});
+  $('share-out').innerHTML = `<div class="url">${esc(r.url)}</div><button class="small" onclick="navigator.clipboard.writeText('${r.url}').then(() => toast('Link copied – send it to ${esc(person)}'))">Copy link</button>
+    <p class="muted" style="font-size:13px">Send this to ${esc(person)} (WhatsApp/Messages). Opened in <b>Safari</b> it logs straight in to a simple version – heating, how it feels, who's home – and shows how to add it to the home screen. No password needed, so only send it to ${esc(person)}.</p>`;
+}
+
 // Whose phone is this? Asked once, remembered on this phone - so comfort answers count for the right person.
 function me() {
   let who = null;
@@ -736,7 +778,7 @@ async function enablePush() {
     const info = await api('/api/push');
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64ToBytes(info.public_key)});
-    await api('/api/push/subscribe', sub.toJSON());
+    await api('/api/push/subscribe', {...sub.toJSON(), person: me(), simple: isSimple()});
     toast('Notifications on'); loadPush();
   } catch (e) { toast('Could not turn on notifications: ' + e.message); }
 }

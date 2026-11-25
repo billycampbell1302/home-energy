@@ -11,8 +11,8 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi import Query, FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -75,6 +75,11 @@ def poll_once():
                 comfort_guard(home_now)
                 from . import thermal
                 thermal.act(hive.summary(), home_now, bool(db.get_state("hold", False)))
+                try:
+                    from . import checkins
+                    checkins.check(hive.summary(), presence())
+                except Exception as e:
+                    log.warning("check-ins: %s", e)
                 try:
                     thermal.kids_morning(hive.summary(), home_now, bool(db.get_state("hold", False)))
                 except Exception as e:
@@ -282,7 +287,7 @@ def _authed(request: Request) -> bool:
     return hmac.compare_digest(sig, _sign(ts)) and ts.isdigit() and time.time() - int(ts) < COOKIE_DAYS * 86400
 
 
-PUBLIC_PATHS = {"/login", "/api/login", "/manifest.json", "/sw.js", "/healthz"}
+PUBLIC_PATHS = {"/login", "/api/login", "/manifest.json", "/sw.js", "/healthz", "/join"}
 
 
 @app.middleware("http")
@@ -330,8 +335,65 @@ def login_page():
 
 
 @app.get("/manifest.json")
-def manifest():
-    return FileResponse(STATIC / "manifest.json", media_type="application/manifest+json")
+def manifest(t: str | None = None):
+    m = json.loads((STATIC / "manifest.json").read_text())
+    if t and t in db.get_state("invites", {}):
+        m["start_url"] = f"/join?t={t}&app=1"          # the home-screen app always opens through the invite
+        m["name"], m["short_name"] = "Home", "Home"
+    return JSONResponse(m, media_type="application/manifest+json")
+
+
+class Share(BaseModel):
+    person: str
+
+
+@app.post("/api/share")
+def share(sh: Share):
+    """A personal link that logs someone in to the simple version of the app (no password needed)."""
+    import secrets
+    if sh.person not in PEOPLE:
+        raise HTTPException(400, "Unknown person")
+    inv = db.get_state("invites", {})
+    tok = next((k for k, v in inv.items() if v["person"] == sh.person), None) or secrets.token_urlsafe(18)
+    inv[tok] = {"person": sh.person, "created": int(time.time())}
+    db.set_state("invites", inv)
+    return {"url": f"{PUBLIC_URL}/join?t={tok}"}
+
+
+@app.post("/api/share/revoke")
+def share_revoke(sh: Share):
+    inv = {k: v for k, v in db.get_state("invites", {}).items() if v["person"] != sh.person}
+    db.set_state("invites", inv)
+    return {"ok": True}
+
+
+@app.get("/join")
+def join(t: str = "", app_: int = Query(0, alias="app")):
+    inv = db.get_state("invites", {}).get(t)
+    if not inv:
+        return HTMLResponse("<p style='font-family:sans-serif'>This link has expired – ask Billy for a new one.</p>", status_code=403)
+    person = inv["person"]
+    if app_:
+        body = (f"<script>try{{localStorage.setItem('me',{json.dumps(person)});localStorage.setItem('simple','1')}}catch(e){{}}"
+                "location.replace('/')</script>")
+    else:
+        body = f"""<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="manifest" href="/manifest.json?t={t}"><meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="/static/icon-192.png"><title>Home</title>
+<style>body{{font-family:-apple-system,sans-serif;background:#0f1115;color:#e8eaf0;padding:24px;line-height:1.5}}
+.b{{display:block;background:#ff7a2f;color:#111;text-align:center;padding:14px;border-radius:12px;text-decoration:none;font-weight:600;margin-top:20px}}</style></head>
+<body><h2>Hi {person} 👋</h2><p>This is our home heating app. To install it:</p>
+<ol><li>Tap the <b>Share</b> button at the bottom of Safari (the square with an arrow)</li>
+<li>Choose <b>Add to Home Screen</b>, then <b>Add</b></li>
+<li>Open <b>Home</b> from your home screen and tap <b>Turn on notifications</b></li></ol>
+<p>It'll occasionally ask how warm it feels – one tap, and it learns what you like.</p>
+<a class="b" href="/join?t={t}&app=1">Or just open it here</a>
+<script>try{{localStorage.setItem('me',{json.dumps(person)});localStorage.setItem('simple','1')}}catch(e){{}}</script></body></html>"""
+    resp = HTMLResponse(body)
+    ts = str(int(time.time()))
+    resp.set_cookie(COOKIE, f"{ts}.{_sign(ts)}", max_age=COOKIE_DAYS * 86400, httponly=True,
+                    secure=PUBLIC_URL.startswith("https"), samesite="lax")
+    return resp
 
 
 @app.get("/sw.js")
@@ -1117,7 +1179,16 @@ def push_info():
 @app.post("/api/push/subscribe")
 async def push_subscribe(request: Request):
     from . import notify
-    notify.subscribe(json.loads(await request.body()))
+    body = json.loads(await request.body())
+    person = body.pop("person", None)
+    simple = body.pop("simple", None)
+    notify.subscribe(body, person if person in PEOPLE else None)
+    if simple is not None:
+        subs = db.get_state("push_subs", [])
+        for x in subs:
+            if x.get("endpoint") == body.get("endpoint"):
+                x["simple"] = bool(simple)
+        db.set_state("push_subs", subs)
     return {"ok": True}
 
 

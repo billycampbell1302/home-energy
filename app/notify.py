@@ -22,6 +22,7 @@ TYPES = {
     "lights_left": "Lights left on when everyone's out",
     "window_open": "Window open (temperature dropping fast)",
     "heating_fault": "Heating not warming the flat (boiler check)",
+    "comfort_check": "Comfort check-ins ('how does it feel?') when it would help the learning",
     "washing_done": "Washing finished / clothes dry",
     "dehumidifier": "Dehumidifier (tank full, cheap-rate drying, damp)",
     "high_use": "Unusually high electricity use",
@@ -53,11 +54,21 @@ def public_key() -> str:
     return _keys()["public"]
 
 
-def subscribe(sub: dict):
+def subscribe(sub: dict, person: str | None = None):
     subs = db.get_state("push_subs", [])
-    if sub.get("endpoint") and all(x.get("endpoint") != sub["endpoint"] for x in subs):
-        subs.append(sub)
+    if not sub.get("endpoint"):
+        return
+    for x in subs:
+        if x.get("endpoint") == sub["endpoint"]:
+            if person:
+                x["person"] = person          # remember whose phone this is
+            break
+    else:
+        subs.append({**sub, **({"person": person} if person else {})})
     db.set_state("push_subs", subs)
+
+
+SIMPLE_KINDS = {"comfort_check", "washing_done", "dehumidifier", "window_open", "heating_fault", "frost", "cold_home"}
 
 
 def settings() -> dict:
@@ -65,7 +76,7 @@ def settings() -> dict:
     return {k: saved.get(k, k not in DEFAULT_OFF) for k in TYPES}
 
 
-def send(kind: str, title: str, body: str, url: str = "/", force: bool = False) -> list:
+def send(kind: str, title: str, body: str, url: str = "/", force: bool = False, person: str | None = None) -> list:
     """Sends to every subscribed phone. Returns [{"ok": bool, "status": int|None, "error": str}] per phone."""
     if not force and not settings().get(kind, True):
         return []
@@ -75,8 +86,14 @@ def send(kind: str, title: str, body: str, url: str = "/", force: bool = False) 
     signer = Vapid02.from_pem(_keys()["private_pem"].encode())   # pywebpush wants a key object, not PEM text
     keep, results = [], []
     for sub in db.get_state("push_subs", []):
+        if person and sub.get("person") != person:
+            keep.append(sub)
+            continue
+        if sub.get("simple") and kind not in SIMPLE_KINDS:
+            keep.append(sub)                     # Katie's simple app only gets the everyday ones
+            continue
         try:
-            r = webpush(subscription_info=sub, data=json.dumps({"title": title, "body": body, "url": url}),
+            r = webpush(subscription_info={k: sub[k] for k in ("endpoint", "keys") if k in sub}, data=json.dumps({"title": title, "body": body, "url": url}),
                         vapid_private_key=signer, vapid_claims={"sub": PUBLIC_URL}, ttl=3600,
                         headers={"urgency": "high"})
             keep.append(sub)
