@@ -497,6 +497,12 @@ def diagnostics():
     return PlainTextResponse("\n".join(L))
 
 
+@app.get("/api/plan")
+def plan_week():
+    from . import plan
+    return plan.week()
+
+
 @app.get("/api/routine")
 def routine():
     from . import routine as r
