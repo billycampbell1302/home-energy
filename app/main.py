@@ -648,6 +648,77 @@ def presence_correct(f: PresenceFix):
     return {"ok": True, "moved": bool(later), "minutes": round((end - ts) / 60)}
 
 
+@app.get("/api/simple")
+async def simple_dashboard():
+    """Everything the simple (shared) dashboard shows, in plain words."""
+    from datetime import datetime as dt
+    from . import thermal, comfort, connectlife, dehumid
+    out = {}
+    now = dt.now()
+    if hive.is_configured():
+        h = hive.summary()
+        out["heating"] = {"indoor": h.get("indoor_temp"), "target": h.get("target_temp"), "mode": h.get("mode"),
+                          "on": h.get("boiler_on"), "boost_minutes": h.get("boost_minutes")}
+        today = [(st, t) for st, t in thermal._schedule_slots(now) if st.date() == now.date()]
+        sched, low = [], 16.0
+        for i, (st, t) in enumerate(today):
+            end = today[i + 1][0] if i + 1 < len(today) else None
+            if t > low:
+                sched.append({"from": f"{st:%H:%M}", "to": f"{end:%H:%M}" if end else "midnight", "temp": t,
+                              "now": st <= now and (end is None or now < end)})
+        out["schedule"] = sched
+        nxt = next(((st, t) for st, t in thermal._schedule_slots(now) if st > now), None)
+        if nxt:
+            out["next"] = f"{'Heating on' if nxt[1] > low else 'Heating off'} at {nxt[0]:%H:%M}" + (f" ({nxt[1]}°)" if nxt[1] > low else "") \
+                + (" tomorrow" if nxt[0].date() != now.date() else "")
+    home = [p for p, v in presence().items() if v["home"]]
+    out["who"] = {p: v["home"] for p, v in presence().items()}
+    c = comfort.for_people(home or list(PEOPLE))
+    out["comfort"] = {"temp": c["temp"], "who": c["who"]}
+    try:
+        w = weather.current()
+        out["weather"] = {"temp": w.get("temp"), "feels": w.get("feels_like"), "low": w.get("overnight_low"),
+                          "rain": w.get("rain"), "wind": w.get("wind")}
+    except Exception:
+        pass
+    # Washing machine (shown only - it's controlled on the machine)
+    try:
+        if connectlife.is_configured():
+            for a in connectlife.appliances():
+                ws = connectlife.wash_state(a)
+                txt = "Off" if a.get("offline") else "Not running"
+                if ws["running"]:
+                    txt = ("Drying" if ws["drying"] else "Washing") + (f" · {ws['remaining_min']} min left" if ws["remaining_min"] else "")
+                    if ws["finish_ts"]:
+                        txt += f" · done about {dt.fromtimestamp(ws['finish_ts']):%H:%M}"
+                out.setdefault("appliances", []).append({"name": a["name"], "text": txt, "running": ws["running"]})
+    except Exception:
+        pass
+    # Dehumidifier
+    try:
+        st = db.get_state("dehum", {})
+        for d in tuya.devices():
+            if d["kind"] != "dehumidifier" or d["hidden"]:
+                continue
+            s_ = st.get(d["id"], {})
+            if d.get("tank_full"):
+                txt = "Tank full – please empty it"
+            elif s_.get("deferred") and s_.get("start_at"):
+                L = dehumid.learned()
+                txt = f"Waiting for cheap electricity – starts at {dt.fromtimestamp(s_['start_at']):%H:%M}, clothes dry by about {L['ready_by_text']}"
+            elif s_.get("load") and d["on"]:
+                txt = "Drying the washing"
+            elif d["on"]:
+                txt = f"On – keeping the flat at {int(d.get('set_humidity') or 50)}% humidity"
+            else:
+                txt = "Off"
+            out.setdefault("dehumidifiers", []).append({"name": d["name"], "text": txt, "humidity": d.get("humidity"),
+                                                        "alert": bool(d.get("tank_full"))})
+    except Exception:
+        pass
+    return out
+
+
 @app.get("/api/routine")
 def routine():
     from . import routine as r

@@ -44,6 +44,7 @@ function onTab(tab) {
 // ---------- home ----------
 async function load() {
   applySimple();
+  if (isSimple()) loadSimple();
   S = await api('/api/status');
   render();
   loadComfort();
@@ -53,7 +54,6 @@ async function load() {
     window._feelChecked = true;
     if (location.search.includes('feel=1')) { feelOverlay(); history.replaceState(null, '', '/'); }
     claimPhone();
-    if (isSimple() && $('simple-push')) $('simple-push').style.display = ('Notification' in window && Notification.permission === 'granted') ? 'none' : 'block';
   }
 }
 async function loadCosts() {
@@ -201,6 +201,32 @@ function nudge(delta) {
 function isSimple() { try { return localStorage.getItem('simple') === '1'; } catch (_) { return false; } }
 function applySimple() {
   document.body.classList.toggle('simple', isSimple());
+  const t = document.querySelector('header h1, h1');
+  if (isSimple() && t) t.textContent = 'Home';
+}
+async function loadSimple() {
+  let d;
+  try { d = await api('/api/simple'); } catch (_) { return; }
+  const h = d.heating || {};
+  $('s-indoor').textContent = h.indoor != null ? h.indoor.toFixed(1) + '°' : '–';
+  $('s-target').textContent = h.mode === 'BOOST' ? `boosting to ${h.target}° · ${h.boost_minutes} min left` : h.target != null && h.target > 16 ? `heating to ${h.target}°` : 'heating off for now';
+  $('s-state').textContent = h.on ? '🔥 Heating' : 'Idle';
+  $('s-state').className = 'pill' + (h.on ? ' on' : '');
+  $('s-boost').classList.toggle('primary', h.mode === 'BOOST');
+  $('s-boost-off').style.display = h.mode === 'BOOST' ? 'inline-block' : 'none';
+  const w = d.weather;
+  $('s-weather').textContent = w ? `Outside ${Math.round(w.temp)}°` + (w.feels != null ? ` (feels ${Math.round(w.feels)}°)` : '') + (w.low != null ? ` · tonight ${Math.round(w.low)}°` : '') + (w.rain ? ' · rain' : '') : '';
+  $('s-comfort').textContent = d.comfort ? `Learned comfortable temperature right now: ${d.comfort.temp}°` : '';
+  $('s-schedule').innerHTML = (d.schedule || []).length ? d.schedule.map((b) =>
+    `<div class="row" style="padding:6px 0;border-top:1px solid var(--line)"><span>${b.now ? '▶ ' : ''}<b>${b.from}–${b.to}</b></span><span>${b.temp}°${b.now ? ' <span class="pill on" style="font-size:11px">now</span>' : ''}</span></div>`).join('')
+    : '<p class="muted">No heating planned for the rest of today.</p>';
+  $('s-next').textContent = d.next || '';
+  const items = (d.appliances || []).map((a) => `<div style="padding:6px 0;border-top:1px solid var(--line)"><b>🧺 ${esc(a.name)}</b><div class="muted">${esc(a.text)}</div></div>`)
+    .concat((d.dehumidifiers || []).map((x) => `<div style="padding:6px 0;border-top:1px solid var(--line)"><b>💧 ${esc(x.name)}</b>${x.humidity != null ? ` <span class="muted">${x.humidity}% humidity</span>` : ''}<div style="${x.alert ? 'color:#ff7a2f;font-weight:600' : ''}" class="${x.alert ? '' : 'muted'}">${esc(x.text)}</div></div>`));
+  $('s-appl-card').style.display = items.length ? 'block' : 'none';
+  $('s-appl').innerHTML = items.join('') + (d.appliances && d.appliances.length ? '<p class="muted" style="font-size:12px">The washing machine is controlled on the machine itself – this just shows what it\'s doing.</p>' : '');
+  $('s-who').innerHTML = Object.entries(d.who || {}).map(([p, h]) => `<span class="pill ${h ? 'home' : 'away'}">${esc(p)} · ${h ? 'home' : 'out'}</span>`).join('');
+  if ($('simple-push')) $('simple-push').style.display = ('Notification' in window && Notification.permission === 'granted') ? 'none' : 'block';
 }
 function fullApp() { try { localStorage.removeItem('simple'); } catch (_) {} applySimple(); toast('Showing the full app'); }
 function feelOverlay() {
@@ -248,6 +274,7 @@ async function boost(minutes) {
   S.heating = await api('/api/heating/boost', {minutes, person: me()}); render();
   toast(`Boosting to ${S.heating.target_temp}° for ${minutes} min – stops at your comfortable temperature`);
   loadComfort();
+  if (isSimple()) loadSimple();
 }
 async function feel(feeling) {
   const person = me();
