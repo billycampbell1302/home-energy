@@ -114,3 +114,6 @@ body.simple #tab-simple { display: block !important; }
 .feel { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 6px; }
 .feel button { padding: 12px 4px; }
 input.switch { width: 46px; height: 28px; margin: 0; flex: 0 0 auto; accent-color: var(--warm); }
+
+#ptr { position: fixed; top: calc(env(safe-area-inset-top) + 60px); left: 0; right: 0; height: 0; overflow: hidden; z-index: 4;
+  display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; transition: height .15s; pointer-events: none; }

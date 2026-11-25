@@ -1062,3 +1062,40 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
 load();
 setInterval(() => { if (!document.hidden && pendingTarget === null) load(); }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+
+
+// ---------- pull down to refresh (the home-screen app has no built-in one) ----------
+(function pullToRefresh() {
+  let startY = null, pulled = 0, busy = false;
+  const ind = document.createElement('div');
+  ind.id = 'ptr';
+  document.body.appendChild(ind);
+  const current = () => (document.querySelector('nav button.active') || {dataset: {}}).dataset.tab ||
+    ((document.querySelector('.tab.active') || {}).id || 'tab-home').replace('tab-', '');
+  window.addEventListener('touchstart', (e) => {
+    startY = window.scrollY <= 0 && !busy ? e.touches[0].clientY : null; pulled = 0;
+  }, {passive: true});
+  window.addEventListener('touchmove', (e) => {
+    if (startY === null) return;
+    pulled = Math.max(0, e.touches[0].clientY - startY);
+    const h = Math.min(pulled * 0.5, 70);
+    ind.style.height = h + 'px';
+    ind.textContent = pulled > 110 ? '↻ Release to refresh' : pulled > 20 ? '↓ Pull to refresh' : '';
+  }, {passive: true});
+  window.addEventListener('touchend', async () => {
+    if (startY === null) return;
+    startY = null;
+    if (pulled > 110 && !busy) {
+      busy = true;
+      ind.textContent = 'Refreshing…'; ind.style.height = '44px';
+      try {
+        S = await api('/api/refresh', {});          // fetch fresh readings from Hive, lights etc. now
+        await load();
+        onTab(current());
+      } catch (_) {}
+      busy = false;
+      toast('Up to date');
+    }
+    ind.style.height = '0px'; ind.textContent = '';
+  });
+})();
