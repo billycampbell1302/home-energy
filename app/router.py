@@ -56,6 +56,15 @@ def report(clients: list, uptime: int | None = None) -> dict:
         if not mac:
             continue
         d = devs.get(mac, {})
+        role0 = roles.get(mac, "")
+        if c.get("wired"):
+            # A phone (or anything ever seen on Wi-Fi) is never "wired": its address lingers in the router's
+            # neighbour table after it leaves, which must not count as being home.
+            if d.get("wifi_ever") or role0.startswith("person:") or role0 == "kids" \
+                    or any(w in (c.get("name") or d.get("name") or "").lower() for w in ("iphone", "ipad", "android", "galaxy", "pixel")):
+                continue
+        else:
+            d["wifi_ever"] = True
         total = int(c.get("rx") or 0) + int(c.get("tx") or 0)
         if d.get("bytes") is not None and d.get("last_seen") and total >= d["bytes"]:
             dt = max(1, now - d["last_seen"])
@@ -162,7 +171,7 @@ EOF
 [ "$(nft list chain inet homeenergy traffic 2>/dev/null | grep -c counter)" -gt 200 ] && nft flush chain inet homeenergy traffic
 RULES=$(nft list chain inet homeenergy traffic 2>/dev/null)
 WIRED=""
-for L in $(ip -4 neigh show dev br-lan 2>/dev/null | awk '$2=="lladdr" && $4!="FAILED" && $4!="INCOMPLETE" {print $1 "," tolower($3)}'); do
+for L in $(ip -4 neigh show dev br-lan 2>/dev/null | awk '$2=="lladdr" && ($4=="REACHABLE" || $4=="DELAY" || $4=="PROBE") {print $1 "," tolower($3)}'); do
   IP=${L%,*}; MAC=${L#*,}
   echo "$WIFI" | grep -qx "$MAC" && continue
   if ! echo "$RULES" | grep -q "ip daddr $IP counter"; then
