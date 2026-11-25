@@ -34,6 +34,11 @@ def _presence_events(since):
     return out
 
 
+def _skip():
+    from .daytypes import excluded_set
+    return excluded_set()
+
+
 def person_grid(person: str, events: list, now: int):
     """Replays the arrive/leave events into 15-minute samples (only from the first event onwards - before that we don't know)."""
     mine = [(ts, home) for ts, p, home in events if p == person]
@@ -46,9 +51,10 @@ def person_grid(person: str, events: list, now: int):
             i += 1
             state = mine[i][1]
         lt = datetime.fromtimestamp(t)
-        cell = acc[lt.weekday()][lt.hour]
-        cell[0] += int(state)
-        cell[1] += 1
+        if lt.date().isoformat() not in _skip():
+            cell = acc[lt.weekday()][lt.hour]
+            cell[0] += int(state)
+            cell[1] += 1
         t += STEP
     return _finish(acc), (now - mine[0][0]) / 86400, len(mine)
 
@@ -58,11 +64,14 @@ def readings_grid(since: int, test):
     with db._lock:
         rows = db._conn.execute(
             "SELECT ts, boiler_on, people_home, kids_lights_on, hold FROM readings WHERE ts >= ?", (since,)).fetchall()
+    skip = _skip()
     for ts, boiler, people, kids, hold in rows:
         v = test(boiler, people, kids, hold)
         if v is None:
             continue
         lt = datetime.fromtimestamp(ts)
+        if lt.date().isoformat() in skip:
+            continue
         acc[lt.weekday()][lt.hour][0] += int(v)
         acc[lt.weekday()][lt.hour][1] += 1
     return _finish(acc)

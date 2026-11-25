@@ -507,6 +507,20 @@ def plan_week():
     return plan.week()
 
 
+class DayOverride(BaseModel):
+    date: str
+    value: str | None = None      # "exclude", "include" or None (automatic)
+
+
+@app.post("/api/days")
+def day_override(o: DayOverride):
+    from . import daytypes, plan
+    if o.value not in (None, "exclude", "include"):
+        raise HTTPException(400, "Bad value")
+    daytypes.set_override(o.date[:10], o.value)
+    return plan.week()
+
+
 @app.get("/api/routine")
 def routine():
     from . import routine as r

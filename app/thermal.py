@@ -416,8 +416,12 @@ def suggestions() -> list:
         rows = db._conn.execute(
             "SELECT ts, boiler_on, people_home, kids_lights_on, hold FROM readings WHERE ts>=?", (time.time() - 28 * 86400,)).fetchall()
     days, waste = {}, {}
+    from .daytypes import excluded_set
+    skip = excluded_set()
     for ts, b, p, k, h in rows:
         d = datetime.fromtimestamp(ts)
+        if d.date().isoformat() in skip:
+            continue
         g = "weekends" if d.weekday() >= 5 else "weekdays"
         days.setdefault(g, set()).add(d.date())
         if b and not p and not k and not h:
@@ -585,7 +589,10 @@ def wake_time(day: datetime | None = None) -> float | None:
     """Usual time the kids are up (hours), for weekdays or weekends - the earlier side, so the flat's warm in time."""
     day = day or datetime.now()
     weekend = day.weekday() >= 5
-    hours = sorted(w["hour"] for w in db.get_state("wake_log", [])[-40:] if w["weekend"] == weekend)
+    from .daytypes import excluded_set, planned_as
+    skip = excluded_set()
+    weekend = planned_as(day.date())[0] >= 5
+    hours = sorted(w["hour"] for w in db.get_state("wake_log", [])[-40:] if w["weekend"] == weekend and w["date"] not in skip)
     if len(hours) < 3:
         return None
     return hours[max(0, len(hours) // 4)]          # lower quartile: warm by their earlier mornings, not just the average

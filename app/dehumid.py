@@ -54,6 +54,7 @@ def _next_at(now: datetime, minutes: float) -> datetime:
 def _first_departures(weekend: bool) -> list:
     """Hour of the first phone leaving each morning (05:00–11:00) over the last 4 weeks."""
     import json
+    from .daytypes import is_excluded
     with db._lock:
         rows = db._conn.execute("SELECT ts, detail FROM events WHERE kind='presence' AND ts>=? ORDER BY ts",
                                 (time.time() - 28 * 86400,)).fetchall()
@@ -64,7 +65,7 @@ def _first_departures(weekend: bool) -> list:
         except (TypeError, ValueError):
             continue
         t = datetime.fromtimestamp(ts)
-        if dd.get("home") is False and 5 <= t.hour < 11 and (t.weekday() >= 5) == weekend:
+        if dd.get("home") is False and 5 <= t.hour < 11 and (t.weekday() >= 5) == weekend and not is_excluded(t.date()):
             first.setdefault(t.date(), t.hour + t.minute / 60)
     return list(first.values())
 

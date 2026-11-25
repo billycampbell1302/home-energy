@@ -56,6 +56,8 @@ def _occupancy() -> dict:
        (weekday, slot) -> {"days": set(dates), "n": samples, "Billy": hits, "Katie": hits, "both": hits, "empty": hits,
                            "kids": hits, "kids_n": samples}"""
     from .routine import _presence_events
+    from .daytypes import excluded_set
+    skip = excluded_set()
     since = time.time() - 28 * 86400
     acc = defaultdict(lambda: defaultdict(int))
     days = defaultdict(set)
@@ -72,8 +74,8 @@ def _occupancy() -> dict:
             while i < len(mine) and mine[i][0] <= t:
                 state = mine[i][1]
                 i += 1
-            if t >= since:
-                d = datetime.fromtimestamp(t)
+            d = datetime.fromtimestamp(t)
+            if t >= since and d.date().isoformat() not in skip:
                 k = (d.weekday(), _slot(d))
                 acc[k][person + "_n"] += 1
                 acc[k][person] += int(state)
@@ -83,6 +85,8 @@ def _occupancy() -> dict:
         rows = db._conn.execute("SELECT ts, people_home, kids_lights_on, hold, extra FROM readings WHERE ts>=?", (since,)).fetchall()
     for ts, ph, other, hold, extra in rows:
         d = datetime.fromtimestamp(ts)
+        if d.date().isoformat() in skip:
+            continue
         k = (d.weekday(), _slot(d))
         a = acc[k]
         days[k].add(d.date())
@@ -114,8 +118,9 @@ def day_plan(day: datetime, occ: dict, temps: dict) -> dict:
     m = thermal.model()
     wake = thermal.wake_time(day)
     sched = [(s, t) for s, t in thermal._schedule_slots(day) if s.date() == day.date()]
-    wd = day.weekday()
-    plural = day.strftime("%A") + "s"
+    from .daytypes import planned_as
+    wd, special = planned_as(day.date())
+    plural = ["Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays"][wd]
     acc, days = occ["acc"], occ["days"]
     seen_days = set().union(*[days.get((wd, i), set()) for i in range(48)]) if days else set()
 
@@ -205,7 +210,7 @@ def day_plan(day: datetime, occ: dict, temps: dict) -> dict:
     hive_hours = sum((b["end"] - b["start"]) / 60 for b in hive_blocks if b["target"] > LOW + 0.5)
     known = sum(b["end"] - b["start"] for b in blocks if b["state"] != "nodata") / 60
     lows = [v for k, v in temps.items() if k.startswith(day.strftime("%Y-%m-%d"))]
-    return {"date": day.strftime("%Y-%m-%d"), "label": day.strftime("%a %d"), "plural": plural, "blocks": blocks,
+    return {"date": day.strftime("%Y-%m-%d"), "label": day.strftime("%a %d"), "plural": plural, "blocks": blocks, "special": special,
             "hive": hive_blocks, "warm_hours": round(warm_hours, 1), "hive_hours": round(hive_hours, 1),
             "days_seen": len(seen_days), "known_hours": round(known, 1), "people": list(PEOPLE),
             "outdoor_min": min(lows) if lows else None, "outdoor_max": max(lows) if lows else None}
@@ -219,4 +224,4 @@ def week() -> dict:
     days = [day_plan(today + timedelta(days=i), occ, temps) for i in range(7)]
     return {"days": days, "learning_days": round(thermal.learning_days(), 1), "learning_target": thermal.LEARNING_DAYS,
             "model_confident": bool(thermal.model().get("confident")), "low": LOW,
-            "active": thermal.learning_done()}
+            "active": thermal.learning_done(), "recent": __import__("app.daytypes", fromlist=["x"]).recent()}

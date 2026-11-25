@@ -272,6 +272,21 @@ async function loadPlan() {
       <div style="width:48px;font-size:12px" class="muted">${esc(d.label)}</div><div style="flex:1">${planBar(d.blocks, d.hive, 14)}</div></div>`).join('') +
     '<div class="muted" style="font-size:12px;margin-top:6px"><span style="color:#ff7a2f">■</span> warm &nbsp; <span style="color:#f0a04b">■</span> mild &nbsp; <span style="color:#4a5060">■</span> low 16° &nbsp; ▨ no data yet</div>';
   renderPlanDay();
+  renderRecent();
+}
+function renderRecent() {
+  $('plan-recent').innerHTML = PLAN.recent.map((r) => {
+    const next = r.excluded ? 'include' : 'exclude';
+    return `<div class="row" style="padding:6px 0;border-top:1px solid var(--line)">
+      <div style="min-width:0"><b style="${r.excluded ? 'text-decoration:line-through;opacity:.6' : ''}">${esc(r.label)}</b>
+        <div class="muted" style="font-size:12px">${r.excluded ? '🚫 Left out – ' + esc(r.why) : r.override === 'include' ? '✓ Counted (you chose)' : '✓ Used for learning'}</div></div>
+      <button class="small" onclick="dayOverride('${r.date}', '${r.override ? '' : next}')">${r.override ? 'Automatic' : r.excluded ? 'Count it' : 'Leave out'}</button></div>`;
+  }).join('');
+}
+async function dayOverride(date, value) {
+  PLAN = await api('/api/days', {date, value: value || null});
+  toast(value === 'exclude' ? 'Left out of the learning' : value === 'include' ? 'Counted in the learning' : 'Back to automatic');
+  loadPlan();
 }
 function whoLine(b) {
   const chip = (label, v, good) => v == null ? '' : `<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;border-radius:10px;background:#232833;font-size:12px">${label} <b style="color:${v >= 50 ? (good ? '#5ad19a' : '#ff7a2f') : 'var(--muted)'}">${v}%</b></span>`;
@@ -283,6 +298,7 @@ function renderPlanDay() {
   $('plan-days').innerHTML = PLAN.days.map((x, i) => `<button class="small ${i === planDay ? 'primary' : ''}" onclick="planDay=${i};renderPlanDay()">${esc(x.label.split(' ')[0])}</button>`).join('');
   let html = `<div class="row"><b>${esc(d.label)}</b><span class="muted" style="font-size:13px">${d.outdoor_min != null ? `${Math.round(d.outdoor_min)}° to ${Math.round(d.outdoor_max)}° outside` : ''}</span></div>
     <div style="margin:8px 0">${planBar(d.blocks, d.hive, 22)}</div>`;
+  if (d.special) html += `<p style="margin:4px 0">🎉 ${esc(d.special)}</p>`;
   if (!d.days_seen) {
     html += `<p class="muted">No data for ${esc(d.plural)} yet – this fills in after the first one. Until then your Hive schedule runs as normal.</p>`;
   } else {
