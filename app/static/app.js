@@ -38,6 +38,7 @@ function onTab(tab) {
   if (b.dataset.tab === 'energy') loadEnergy(30);
   if (tab === 'devices') { loadAppliances(false); loadOverview(); }
   if (tab === 'plan') loadPlan();
+  if (tab === 'history') fillFix();
   if (b.dataset.tab === 'setup') { loadSetup(); loadVersion(); loadTariffForm(); loadRouter(); loadPush(); }
 }
 
@@ -353,6 +354,22 @@ function renderPlanDay() {
         <ul class="muted" style="font-size:13px;margin:4px 0 0 18px;padding:0">${b.why.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>`).join('');
   }
   $('plan-day').innerHTML = html;
+}
+function fillFix() {
+  if (!$('fix-person') || $('fix-person').options.length) return;
+  $('fix-person').innerHTML = Object.keys(S.presence || {}).map((p) => `<option>${esc(p)}</option>`).join('');
+  const days = [];
+  for (let i = 0; i < 7; i++) { const d = new Date(Date.now() - i * 864e5); days.push([d.toISOString().slice(0, 10), i === 0 ? 'today' : i === 1 ? 'yesterday' : d.toLocaleDateString([], {weekday: 'short', day: 'numeric'})]); }
+  $('fix-day').innerHTML = days.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+}
+async function fixPresence() {
+  const person = $('fix-person').value, home = $('fix-home').value === '1', t = $('fix-time').value, day = $('fix-day').value;
+  if (!t) return toast('Pick a time');
+  try {
+    const r = await api('/api/presence/correct', {person, home, at: `${day} ${t}`});
+    toast(`Corrected – ${person} ${home ? 'arrived' : 'left'} at ${t} (${r.minutes} min fixed)`);
+    if (typeof loadRoutine === 'function') loadRoutine();
+  } catch (e) { toast(e.message || 'Could not save'); }
 }
 async function loadComfort() {
   try {

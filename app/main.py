@@ -531,6 +531,56 @@ def costs_summary():
         return {"ready": False}
 
 
+class PresenceFix(BaseModel):
+    person: str
+    home: bool            # what was really true from `at`: False = they'd left, True = they'd arrived
+    at: str               # "HH:MM" today, or "YYYY-MM-DD HH:MM"
+
+
+@app.post("/api/presence/correct")
+def presence_correct(f: PresenceFix):
+    """Correct a late or missed arrival/departure: the history and readings are rewritten from that time."""
+    from datetime import datetime as dt
+    if f.person not in PEOPLE:
+        raise HTTPException(400, "Unknown person")
+    try:
+        when = dt.strptime(f.at, "%Y-%m-%d %H:%M") if len(f.at) > 5 else dt.combine(dt.now().date(), dt.strptime(f.at, "%H:%M").time())
+    except ValueError:
+        raise HTTPException(400, "Time should look like 08:20")
+    ts = int(when.timestamp())
+    now = time.time()
+    if ts > now or now - ts > 7 * 86400:
+        raise HTTPException(400, "Pick a time in the last 7 days")
+    with db._lock:
+        rows = db._conn.execute("SELECT rowid, ts, detail FROM events WHERE kind='presence' AND ts>? AND ts<=? ORDER BY ts",
+                                (ts, ts + 12 * 3600)).fetchall()
+    later = None
+    for rowid, t, d in rows:
+        d = json.loads(d)
+        if d.get("person") != f.person:
+            continue
+        if d.get("home") == f.home:
+            later = (rowid, t)          # the app noticed late - move it back
+        break                           # the next event for this person decides it
+    end = later[1] if later else int(now)
+    with db._lock:
+        if later:
+            db._conn.execute("UPDATE events SET ts=? WHERE rowid=?", (ts, later[0]))
+        else:
+            db._conn.execute("INSERT INTO events VALUES (?,?,?)", (ts, "presence", json.dumps({"person": f.person, "home": f.home})))
+        # The 5-minute readings: one person more or fewer at home over the corrected stretch
+        delta = 1 if f.home else -1
+        db._conn.execute("UPDATE readings SET people_home = MAX(0, MIN(?, COALESCE(people_home,0) + ?)) WHERE ts>=? AND ts<?",
+                         (len(PEOPLE), delta, ts, end))
+        db._conn.commit()
+    if not later:
+        p = presence()
+        p[f.person] = {"home": f.home, "since": ts}
+        db.set_state("presence", p)
+    db.add_event("smart", {"correction": f"{f.person} {'arrived' if f.home else 'left'} at {when:%H:%M} on {when:%a %d %b} (corrected by you)"})
+    return {"ok": True, "moved": bool(later), "minutes": round((end - ts) / 60)}
+
+
 @app.get("/api/routine")
 def routine():
     from . import routine as r
