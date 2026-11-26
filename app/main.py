@@ -1002,6 +1002,10 @@ async def owntracks_hook(request: Request, token: str, person: str):
     except ValueError:
         raise HTTPException(400, "Bad JSON")
     location.record(match, msg)
+    # A fix well away from home ends "home" straight away (the Wi-Fi can take a while to notice)
+    if presence().get(match, {}).get("home") and location.clearly_away(match):
+        _set_presence(match, "away")
+        db.add_event("smart", {"presence": f"{match} marked out – phone location is away from home"})
     return JSONResponse([])
 
 
