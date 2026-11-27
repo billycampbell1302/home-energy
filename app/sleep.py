@@ -3,7 +3,7 @@ in the morning - no Sleep Focus (that runs on a fixed schedule, not when you act
 
 Every 5 minutes the reading records whether there's any sign of someone awake:
   • a phone in use (a phone on the home Wi-Fi moving data like browsing/scrolling - big steady transfers
-    like overnight iCloud backups are ignored)
+    like overnight iCloud backups are ignored). iPads and tablets never count - they're watched in bed.
   • a Fire Stick streaming
   • a light switched or changed, the kids up and about, a heating change
 Bedtime = the last sign of life in the evening followed by 90+ quiet minutes.
@@ -30,9 +30,10 @@ def activity_now() -> dict:
     devs, roles = db.get_state("router_devices", {}), db.get_state("router_roles", {})
     phones = {}
     for mac, role in roles.items():
-        if role.startswith("person:"):
+        name = (devs.get(mac, {}).get("name") or "").lower()
+        if role.startswith("person:") and "ipad" not in name and "tab" not in name:   # iPads are watched in bed - ignored
             kbps = round(devs.get(mac, {}).get("bps", 0) * 8 / 1000)
-            phones[role[7:]] = kbps
+            phones[role[7:]] = max(phones.get(role[7:], 0), kbps)
     phone_use = any(PHONE_MIN_KBPS <= v < BACKUP_KBPS for v in phones.values())
     try:
         streaming = bool(router.streaming())
@@ -59,16 +60,18 @@ def _nights(weekend_night: bool, mornings: bool = False) -> list:
         except ValueError:
             e = {}
         if "awake" in e:
-            seq.append((ts, bool(e["awake"]) or bool(e.get("kids_active")), bool(ph)))
+            # evenings: only phones, TV, lights, heating (tablets/iPads never count - watched in bed)
+            # mornings: the kids being up counts too (that's when it needs to be warm)
+            seq.append((ts, bool(e["awake"]), bool(ph), bool(e.get("kids_active"))))
     out = []
-    days = sorted({datetime.fromtimestamp(t).date() for t, _, _ in seq})
+    days = sorted({datetime.fromtimestamp(t).date() for t, *_ in seq})
     for d in days:
         if mornings:
             weekend = d.weekday() >= 5
             if weekend != weekend_night or d.isoformat() in skip:
                 continue
             a = datetime(d.year, d.month, d.day, 1).timestamp()
-            win = [(t, aw, ph) for t, aw, ph in seq if a <= t < a + 12 * 3600]       # 01:00-13:00
+            win = [(t, aw or kid, ph) for t, aw, ph, kid in seq if a <= t < a + 12 * 3600]       # 01:00-13:00
             quiet_since = None
             for t, aw, ph in win:
                 if not aw:
@@ -84,7 +87,7 @@ def _nights(weekend_night: bool, mornings: bool = False) -> list:
             if weekend != weekend_night or d.isoformat() in skip:
                 continue
             a = datetime(d.year, d.month, d.day, 19).timestamp()
-            win = [(t, aw, ph) for t, aw, ph in seq if a <= t < a + 9 * 3600]        # 19:00-04:00
+            win = [(t, aw, ph) for t, aw, ph, kid in seq if a <= t < a + 9 * 3600]        # 19:00-04:00
             if len(win) < 80 or not any(ph for _, _, ph in win):
                 continue
             last = None
