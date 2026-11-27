@@ -51,7 +51,9 @@ function onTab(tab) {
 // Settings: a one-word status next to each connection so it reads like a proper settings list
 async function octopusImport() {
   const api_key = $('oct-key').value.trim(), account = $('oct-acc').value.trim();
-  if (!api_key || !account) return toast('Add the API key and account number');
+  if (!api_key || !account) { $('oct-status').textContent = '⚠️ Paste in both the API key and the account number first.'; return; }
+  if (!/^sk_/.test(api_key)) { $('oct-status').textContent = '⚠️ That doesn\'t look like an API key – it should start with sk_live_'; return; }
+  if (!/^A-/i.test(account)) { $('oct-status').textContent = '⚠️ The account number should start with A- (e.g. A-1B2C3D4E)'; return; }
   $('oct-status').textContent = 'Checking with Octopus…';
   try { await api('/api/setup/octopus', {api_key, account}); } catch (e) { $('oct-status').textContent = '⚠️ ' + (e.message || 'Failed'); return; }
   $('oct-key').value = '';
