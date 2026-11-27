@@ -77,6 +77,11 @@ def poll_once():
                 from . import thermal
                 thermal.act(hive.summary(), home_now, bool(db.get_state("hold", False)))
                 try:
+                    from . import plan as _plan
+                    _plan.log_forecast()
+                except Exception as e:
+                    log.warning("forecast log: %s", e)
+                try:
                     from . import checkins
                     checkins.check(hive.summary(), presence())
                 except Exception as e:
@@ -119,6 +124,12 @@ def poll_once():
     row["people_home"] = sum(1 for v in presence().values() if v["home"])
     row["hold"] = int(bool(db.get_state("hold", False)))
     if tuya.is_configured():
+        try:
+            rooms = {d["name"]: d["temp"] for d in tuya.devices() if d["kind"] == "sensor" and not d["hidden"] and d.get("temp") is not None}
+            if rooms:
+                row.setdefault("extra", {})["rooms"] = rooms           # per-room temperatures, if sensors are added
+        except Exception:
+            pass
         try:
             from . import dehumid
             dehumid.check()
@@ -745,6 +756,38 @@ async def simple_dashboard():
     return out
 
 
+@app.get("/api/week/check")
+def week_check():
+    """The last 7 days of comings and goings, per person, to confirm (or fix) once a week."""
+    from datetime import datetime as dt, timedelta
+    now = dt.now()
+    start = (now - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+    with db._lock:
+        rows = db._conn.execute("SELECT ts, detail FROM events WHERE kind='presence' AND ts>=? ORDER BY ts",
+                                (start.timestamp(),)).fetchall()
+    days = []
+    for i in range(7):
+        d0 = start + timedelta(days=i)
+        day = {"date": d0.strftime("%Y-%m-%d"), "label": d0.strftime("%a %d"), "people": {p: [] for p in PEOPLE}}
+        for ts, d in rows:
+            d = json.loads(d)
+            t = dt.fromtimestamp(ts)
+            if t.date() == d0.date() and d.get("person") in PEOPLE:
+                day["people"][d["person"]].append(f"{'in' if d['home'] else 'out'} {t:%H:%M}")
+        days.append(day)
+    week = now.strftime("%G-W%V")
+    return {"days": days, "week": week, "confirmed": week in db.get_state("weeks_confirmed", [])}
+
+
+@app.post("/api/week/confirm")
+def week_confirm():
+    from datetime import datetime as dt
+    wk = dt.now().strftime("%G-W%V")
+    db.set_state("weeks_confirmed", (db.get_state("weeks_confirmed", []) + [wk])[-60:])
+    db.add_event("smart", {"week_check": f"week {wk} comings and goings confirmed"})
+    return week_check()
+
+
 @app.get("/api/routine")
 def routine():
     from . import routine as r
@@ -985,6 +1028,19 @@ def presence_hook(token: str, person: str, state: str):
     if not hmac.compare_digest(token, webhook_token()):
         raise HTTPException(403, "Bad token")
     _set_presence(person, state)
+    return {"ok": True}
+
+
+@app.api_route("/hook/sleep", methods=["GET", "POST"])
+def sleep_hook(token: str, person: str, state: str):
+    """iPhone Shortcuts automation: Sleep Focus on (state=on) / off (state=off)."""
+    from . import sleep
+    if not hmac.compare_digest(token, webhook_token()):
+        raise HTTPException(403, "Bad token")
+    match = next((p for p in PEOPLE if p.lower() == person.lower()), None)
+    if not match:
+        raise HTTPException(404, "Unknown person")
+    sleep.record(match, state.lower() in ("on", "asleep", "1", "true"))
     return {"ok": True}
 
 
@@ -1386,6 +1442,8 @@ def setup_info():
             p: {
                 "arrive": f"{PUBLIC_URL}/hook/presence?token={tok}&person={p}&state=home",
                 "leave": f"{PUBLIC_URL}/hook/presence?token={tok}&person={p}&state=away",
+                "sleep_on": f"{PUBLIC_URL}/hook/sleep?token={tok}&person={p}&state=on",
+                "sleep_off": f"{PUBLIC_URL}/hook/sleep?token={tok}&person={p}&state=off",
             } for p in PEOPLE
         },
     }

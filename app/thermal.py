@@ -123,6 +123,37 @@ def learn() -> dict:
             sun.append((s, dt, solar))
     k = statistics.median(ks) if len(ks) >= 3 else None
 
+    # Heat from electricity (oven, dehumidifier, TV... nearly all electricity ends up as heat): fit
+    # slope = -k·ΔT + e·kW over the cool-down stretches that have meter data.
+    e_coef = None
+    pts = []
+    for run in runs:
+        if run[0]["on"] or len(run) < 9:
+            continue
+        run = [r for r in run if r["ts"] - run[0]["ts"] >= 20 * 60]
+        if len(run) < 9:
+            continue
+        with db._lock:
+            kwh = db._conn.execute("SELECT SUM(kwh), COUNT(*) FROM energy WHERE fuel='electricity' AND kwh>0 AND ts>=? AND ts<?",
+                                   (run[0]["ts"] - 1800, run[-1]["ts"])).fetchone()
+        hours = (run[-1]["ts"] - run[0]["ts"]) / 3600
+        if not kwh[1] or kwh[1] < hours * 2 * 0.8:
+            continue
+        kw = kwh[0] / max(hours, 0.5)
+        dt = statistics.mean(r["t"] - r["out"] for r in run)
+        if dt >= 4 and statistics.mean(r["solar"] for r in run) < 50:
+            pts.append((dt, kw, _slope(run)))
+    if len(pts) >= 10:
+        # two-variable least squares, no intercept
+        sxx = sum(a * a for a, b, y in pts); syy = sum(b * b for a, b, y in pts); sxy = sum(a * b for a, b, y in pts)
+        sxz = sum(a * y for a, b, y in pts); syz = sum(b * y for a, b, y in pts)
+        det = sxx * syy - sxy * sxy
+        if det:
+            k2 = -(sxz * syy - syz * sxy) / det
+            e2 = (sxx * syz - sxy * sxz) / det
+            if 0 < k2 < 1 and 0 <= e2 < 3:
+                k, e_coef = k2, e2
+
     heats, lags = [], []
     if k:
         for run in runs:
@@ -146,6 +177,7 @@ def learn() -> dict:
         "a": round(statistics.median(heats), 2) if len(heats) >= 3 else None,
         "lag_min": round(statistics.median(lags)) if len(lags) >= 3 else None,
         "g": round(g, 3) if g is not None else None,
+        "e": round(e_coef, 3) if e_coef is not None else None,
         "wind_factor": round(statistics.median(ks_windy) / statistics.median(ks_calm), 2)
         if len(ks_windy) >= 3 and len(ks_calm) >= 3 else None,
         "cool_runs": len(ks), "heat_runs": len(heats), "updated": int(time.time()),

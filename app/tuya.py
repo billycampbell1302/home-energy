@@ -116,7 +116,9 @@ class TuyaClient:
         hidden_ids = set(db.get_state("hidden_devices", []))
         for d in self._manager.device_map.values():
             st0 = d.status or {}
-            if d.category in DEHUMID_CATEGORIES or ("dehumidify_set_value" in st0 or "dehumidify_set_enum" in st0):
+            if d.category in ("wsdcg",) or "va_temperature" in st0:
+                kind = "sensor"
+            elif d.category in DEHUMID_CATEGORIES or ("dehumidify_set_value" in st0 or "dehumidify_set_enum" in st0):
                 kind = "dehumidifier"
             elif d.category in LIGHT_CATEGORIES:
                 kind = "light"
@@ -141,6 +143,8 @@ class TuyaClient:
                 "home": self.home_of.get(d.id, ""),
                 "power_w": _power(st),
                 **(_dehumid(d) if kind == "dehumidifier" else {}),
+                **({"temp": _scaled(d, "va_temperature"), "humidity": _scaled(d, "va_humidity"),
+                    "battery": (d.status or {}).get("battery_percentage")} if kind == "sensor" else {}),
             })
         return sorted(out, key=lambda x: (x["kind"], x["name"]))
 

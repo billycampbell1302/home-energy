@@ -41,6 +41,14 @@ def check(errors: dict):
     notify.once("down_router", bool(last) and now - last > DOWN_AFTER, "service_down",
                 "Router stopped reporting", "Phone and Fire Stick detection is paused. Check the router's scheduled task.")
 
+    # Weekly presence check: Sunday 18:00, a nudge to confirm the week's comings and goings
+    lt = time.localtime()
+    if lt.tm_wday == 6 and lt.tm_hour == 18 and lt.tm_min < 10:
+        wk = time.strftime("%G-W%V")
+        if wk not in db.get_state("weeks_confirmed", []):
+            notify.once("week_check_" + wk, True, "week_check", "Check your week",
+                        "30 seconds: were the comings and goings right? Clean data = better heating.", url="/?check=week")
+
     # 3. Washer-dryer finished: handled by connectlife.track_runs() (it knows this machine's fields)
 
     # 4. Flat getting cold while someone's in (below 16° for 30 minutes)

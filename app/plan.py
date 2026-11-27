@@ -27,6 +27,44 @@ SLOT = 30                  # minutes
 _wx = {"ts": 0, "temps": {}}
 
 
+def log_forecast():
+    """Every 6 hours, keep what the forecast said for the next 48 hours - so the control can learn how far
+    to trust the forecast when deciding to start heating early."""
+    if time.time() - db.get_state("forecast_logged", 0) < 6 * 3600:
+        return
+    temps = _forecast()
+    if not temps:
+        return
+    made = int(time.time())
+    with db._lock:
+        db._conn.execute("CREATE TABLE IF NOT EXISTS forecasts (made INTEGER, for_ts INTEGER, temp REAL)")
+        rows = []
+        for k, v in temps.items():
+            t = datetime.strptime(k, "%Y-%m-%dT%H:%M").timestamp()
+            if made < t <= made + 48 * 3600:
+                rows.append((made, int(t), v))
+        db._conn.executemany("INSERT INTO forecasts VALUES (?,?,?)", rows)
+        db._conn.execute("DELETE FROM forecasts WHERE made < ?", (made - 120 * 86400,))
+        db._conn.commit()
+    db.set_state("forecast_logged", made)
+
+
+def forecast_accuracy() -> dict | None:
+    """How far off the forecast was, 12-24 h ahead (mean absolute error, °C) - from logged forecasts vs actual."""
+    with db._lock:
+        try:
+            rows = db._conn.execute("SELECT f.temp, f.for_ts FROM forecasts f WHERE f.for_ts - f.made BETWEEN 43200 AND 86400 "
+                                    "AND f.for_ts < ?", (time.time(),)).fetchall()
+        except Exception:
+            return None
+        errs = []
+        for temp, ts in rows:
+            r = db._conn.execute("SELECT AVG(outdoor_temp) FROM readings WHERE ts BETWEEN ? AND ?", (ts - 900, ts + 900)).fetchone()[0]
+            if r is not None:
+                errs.append(abs(temp - r))
+    return {"mae": round(sum(errs) / len(errs), 1), "n": len(errs)} if len(errs) >= 12 else None
+
+
 def _forecast() -> dict:
     """{ 'YYYY-MM-DDTHH:00': °C } for the next 7 days (Met Office UKV where available)."""
     if time.time() - _wx["ts"] < 3600 and _wx["temps"]:
@@ -120,7 +158,11 @@ def _fmt(mins: float) -> str:
 def day_plan(day: datetime, occ: dict, temps: dict) -> dict:
     from . import comfort, thermal
     m = thermal.model()
+    from . import sleep
     wake = thermal.wake_time(day)
+    bed, bed_n = sleep.bedtime(day)
+    up, up_n = sleep.getting_up(day)
+    first_up = min(x for x in (wake, up) if x is not None) if (wake is not None or up is not None) else None
     sched = [(s, t) for s, t in thermal._schedule_slots(day) if s.date() == day.date()]
     from .daytypes import planned_as
     wd, special = planned_as(day.date())
@@ -133,7 +175,7 @@ def day_plan(day: datetime, occ: dict, temps: dict) -> dict:
     for i in range(24 * 60 // SLOT):
         h = i * SLOT / 60
         a = acc.get((wd, i), {})
-        asleep = h >= BED or h < (wake if wake is not None else 6.5)
+        asleep = h >= bed or h < (first_up if first_up is not None else 6.5)
         if not a.get("n"):
             state = "nodata"
         elif asleep:
@@ -173,8 +215,10 @@ def day_plan(day: datetime, occ: dict, temps: dict) -> dict:
             continue
         if b["state"] == "night":
             b["target"] = LOW
-            b["why"].append("Night – everyone asleep" + (f" (kids usually up {_fmt(wake * 60)})" if wake is not None and b["start"] < 12 * 60
-                                                         else " (kids' wake-up time still being learned)" if b["start"] < 12 * 60 else ""))
+            if b["start"] < 12 * 60:
+                b["why"].append("Night – asleep until " + (f"{_fmt(first_up * 60)} (first one up, learned)" if first_up is not None else "06:30 (wake-up still being learned)"))
+            else:
+                b["why"].append(f"Night – usually asleep by {_fmt(bed * 60)}" + (f" (from {bed_n} nights)" if bed_n >= 3 else " (assumed until Sleep Focus has 3 nights)"))
             continue
         if not b["warm"]:
             b["target"] = LOW
@@ -224,6 +268,8 @@ def day_plan(day: datetime, occ: dict, temps: dict) -> dict:
                  "samples": n_wake, "group": "weekends" if weekend else "weekdays", "learned": wake is not None}
     return {"date": day.strftime("%Y-%m-%d"), "label": day.strftime("%a %d"), "plural": plural, "blocks": blocks, "special": special,
             "wake": wake_info,
+            "sleep": {"bed": _fmt(bed * 60), "bed_learned": bed_n >= 3, "bed_nights": bed_n,
+                      "up": _fmt(up * 60) if up is not None else None, "up_nights": up_n},
             "hive": hive_blocks, "warm_hours": round(warm_hours, 1), "hive_hours": round(hive_hours, 1),
             "days_seen": len(seen_days), "known_hours": round(known, 1), "people": list(PEOPLE),
             "outdoor_min": min(lows) if lows else None, "outdoor_max": max(lows) if lows else None}
@@ -248,6 +294,10 @@ def calibration(occ: dict, temps: dict) -> list:
     for label, we in (("weekdays", False), ("weekends", True)):
         n = sum(1 for w in log if w["weekend"] == we)
         add("Kids up", label, "ok" if n >= 3 else "learning" if n else "none", f"{n} mornings" + ("" if n >= 3 else " – reliable from 3"))
+    from . import sleep
+    for label, wd in (("weeknights", 2), ("Fri/Sat nights", 4)):
+        n = sleep.bedtime(datetime.now() + timedelta(days=(wd - datetime.now().weekday()) % 7))[1]
+        add("Bedtime", label, "ok" if n >= 3 else "learning" if n else "none", f"{n} nights (Sleep Focus)" + ("" if n >= 3 else " – reliable from 3"))
     m = thermal.model()
     add("Flat", "Warm-up speed", "ok" if (m.get("a") and m.get("heat_runs", 0) >= 5) else "learning" if m.get("heat_runs") else "none",
         f"{m.get('heat_runs', 0)} heating periods – reliable from 5")
@@ -258,7 +308,9 @@ def calibration(occ: dict, temps: dict) -> list:
     age = (time.time() - last) / 86400 if last else None
     add("Data", "Smart meter", "ok" if age is not None and age < 3 else "learning" if last else "none",
         f"up to {datetime.fromtimestamp(last):%d %b}" if last else "no data")
-    add("Data", "Weather forecast", "ok" if temps else "none", "Met Office, 7 days" if temps else "unavailable")
+    fa = forecast_accuracy()
+    add("Data", "Weather forecast", "ok" if temps else "none",
+        ("Met Office, 7 days" + (f" · typically {fa['mae']}° out a day ahead" if fa else " · accuracy being measured")) if temps else "unavailable")
     return out
 
 

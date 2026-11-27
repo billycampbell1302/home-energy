@@ -22,6 +22,7 @@ TYPES = {
     "lights_left": "Lights left on when everyone's out",
     "window_open": "Window open (temperature dropping fast)",
     "heating_fault": "Heating not warming the flat (boiler check)",
+    "week_check": "Sunday 'check your week' reminder",
     "comfort_check": "Comfort check-ins ('how does it feel?') when it would help the learning",
     "washing_done": "Washing finished / clothes dry",
     "dehumidifier": "Dehumidifier (tank full, cheap-rate drying, damp)",
@@ -115,11 +116,11 @@ def send(kind: str, title: str, body: str, url: str = "/", force: bool = False, 
     return results
 
 
-def once(key: str, condition: bool, kind: str, title: str, body: str):
+def once(key: str, condition: bool, kind: str, title: str, body: str, url: str = "/"):
     """Send when `condition` becomes true; re-arm only once it's been false again."""
     fired = db.get_state("notify_fired", {})
     if condition and not fired.get(key):
-        send(kind, title, body)
+        send(kind, title, body, url=url)
         fired[key] = int(time.time())
     elif not condition and fired.get(key):
         fired.pop(key)

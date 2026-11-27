@@ -35,7 +35,7 @@ document.querySelectorAll('nav button').forEach((b) => b.onclick = () => showTab
 function onTab(tab) {
   if (tab === 'plan') loadPlan();
   if (tab === 'insights') {
-    loadLearning(); loadPlan(); loadComfort(); loadThermal(); loadRoutine();
+    loadWeekCheck(); loadLearning(); loadPlan(); loadComfort(); loadThermal(); loadRoutine();
     loadSmartReport(); loadSummary(); loadHistory(24); loadEvents();
   }
   if (tab === 'energy') { loadEnergy(30); loadReport(); }
@@ -55,7 +55,7 @@ function settingStatuses() {
   set('tariff', true, 'From your meter');
   const rs = ($('router-status') || {}).textContent || '';
   set('router', /report|seen|ago|now/i.test(rs), /report|seen|ago|now/i.test(rs) ? 'Reporting' : 'Not set up');
-  set('own', false, 'Optional'); set('hooks', false, 'Optional');
+  set('own', false, 'Optional'); set('hooks', false, 'Optional'); set('sleep', false, 'Recommended');
   const pushOn = 'Notification' in window && Notification.permission === 'granted';
   set('push', pushOn, pushOn ? 'On' : 'Off');
   set('features', true, '');
@@ -86,6 +86,7 @@ async function load() {
   if (!window._feelChecked) {
     window._feelChecked = true;
     if (location.search.includes('feel=1')) { feelOverlay(); history.replaceState(null, '', '/'); }
+    if (location.search.includes('check=week')) { showTab('insights'); history.replaceState(null, '', '/'); }
     claimPhone();
   }
 }
@@ -218,6 +219,10 @@ function deviceRow(d, full) {
   const kidsToggle = full
     ? `<div class="row" style="margin-top:6px"><span></span><button class="small" onclick="hideDev('${d.id}', true)">Hide</button></div>` : '';
   let state = !d.online ? 'offline' : d.on ? (d.mode === 'colour' ? 'on · colour' : 'on') : 'off';
+  if (d.kind === 'sensor') {
+    return `<div class="device"><div class="row"><b>🌡️ ${esc(d.name)}</b><span class="pill">${d.temp != null ? d.temp + '°' : '–'}${d.humidity != null ? ' · ' + d.humidity + '%' : ''}</span></div>
+      ${d.battery != null ? `<div class="muted" style="font-size:12px">Battery ${d.battery}%</div>` : ''}</div>`;
+  }
   if (d.kind === 'dehumidifier') {
     state += d.humidity != null ? ` · ${d.humidity}%` : '';
     if (d.tank_full) state += ' · TANK FULL';
@@ -291,7 +296,11 @@ function feelOverlay() {
     `<button class="small" style="margin-top:10px" onclick="document.getElementById('feel-overlay').remove()">Not now</button>`;
   document.body.appendChild(o);
 }
-if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && String(e.data.open || '').includes('feel=1')) feelOverlay(); });
+if (navigator.serviceWorker) navigator.serviceWorker.addEventListener('message', (e) => {
+  const u = String((e.data && e.data.open) || '');
+  if (u.includes('feel=1')) feelOverlay();
+  if (u.includes('check=week')) showTab('insights');
+});
 async function claimPhone() {
   // Tag this phone's notification subscription with whose phone it is (and simple mode)
   try {
@@ -350,6 +359,7 @@ async function loadThermal() {
       <div style="padding:3px 0">🧱 With the heating off it stays within ½° of 20° for about ${ex.hold_half_degree_from_20 ?? '…'} min</div>
       <div style="padding:3px 0">📉 Loses about ${ex.loss_per_hour_at_20}° an hour at 20° when the heating's off</div>` : '') +
       (m.wind_factor >= 1.1 ? `<div style="padding:3px 0">💨 Loses heat ${Math.round((m.wind_factor - 1) * 100)}% faster on windy days</div>` : '') +
+      (m.e ? `<div style="padding:3px 0">🍳 Every 1 kW of electricity in use (oven, dehumidifier, TV) adds about ${m.e.toFixed(2)}°/hour – so it doesn't heat when you're cooking</div>` : '') +
       (m.g ? `<div style="padding:3px 0">☀️ Sunshine adds up to ${(m.g * 5).toFixed(1)}°/hour of free heat on a bright day</div>` : '') +
       `<p class="muted" style="font-size:12px">Learned from ${m.cool_runs} cool-down and ${m.heat_runs} warm-up periods${m.confident ? '' : ' – needs 5 of each before it acts on it'}.</p>`
     : '<p>Still measuring how fast the flat warms up and cools down – needs a few heating cycles.</p>';
@@ -491,6 +501,7 @@ function renderPlanDay() {
     <div style="font-size:14px;margin:6px 0;padding:8px;border-radius:8px;background:#16263a">🧒 ${d.wake.learned
       ? `Kids usually up by <b>${d.wake.time}</b> on ${d.wake.group} (from ${d.wake.samples} mornings) – the plan has the flat warm by then`
       : `Kids' wake-up time: <b>still learning</b> (${d.wake.samples} of 3 ${d.wake.group} mornings seen) – assuming 06:30 until then`}
+      <div style="margin-top:4px">🛏️ ${d.sleep.bed_learned ? `Usually asleep by <b>${d.sleep.bed}</b> (from ${d.sleep.bed_nights} nights)` : `Bedtime: <b>assuming ${d.sleep.bed}</b> until Sleep Focus has 3 nights (${d.sleep.bed_nights} so far)`}${d.sleep.up ? ` · you're usually up by <b>${d.sleep.up}</b>` : ''}</div>
       ${PLAN.mornings.length ? `<details style="margin-top:4px"><summary class="muted" style="font-size:12px">Recent mornings</summary><div class="muted" style="font-size:12px">${PLAN.mornings.map((m) => `${esc(m.date.slice(5))} ${m.time} – ${esc(m.why)}${m.left_out ? ' (left out)' : ''}`).join('<br>')}</div></details>` : ''}</div>
     <div style="font-size:13px;margin-bottom:6px"><b>Your Hive schedule now:</b> ${d.hive.length ? hiveText(d.hive) : 'not available'}</div>`;
   if (d.special) html += `<p style="margin:4px 0">🎉 ${esc(d.special)}</p>`;
@@ -522,6 +533,17 @@ async function fixPresence() {
     toast(`Corrected – ${person} ${home ? 'arrived' : 'left'} at ${t} (${r.minutes} min fixed)`);
     if (typeof loadRoutine === 'function') loadRoutine();
   } catch (e) { toast(e.message || 'Could not save'); }
+}
+async function loadWeekCheck(data) {
+  let w = data;
+  if (!w) { try { w = await api('/api/week/check'); } catch (_) { return; } }
+  const people = Object.keys(w.days[0].people);
+  $('week-check').innerHTML = `<p class="muted" style="font-size:13px">When each of you came and went this week. Right? One tap keeps the learning clean. Wrong? Use ⚙️ → Fix a mistake.</p>
+    <table style="width:100%;font-size:13px;border-collapse:collapse"><tr><td></td>${people.map((p) => `<td class="muted">${esc(p)}</td>`).join('')}</tr>` +
+    w.days.map((d) => `<tr style="border-top:1px solid var(--line)"><td style="padding:5px 0;white-space:nowrap"><b>${esc(d.label)}</b></td>${people.map((p) =>
+      `<td style="padding:5px 4px">${d.people[p].length ? d.people[p].map(esc).join('<br>') : '<span class="muted">–</span>'}</td>`).join('')}</tr>`).join('') + '</table>' +
+    (w.confirmed ? '<p class="ok" style="margin-top:8px">✓ Confirmed this week – thanks</p>'
+      : `<button class="primary" style="margin-top:10px;width:100%" onclick="api('/api/week/confirm',{}).then((r)=>{loadWeekCheck(r);toast('Thanks – week confirmed')})">✓ All correct</button>`);
 }
 async function loadComfort() {
   try {
@@ -628,6 +650,8 @@ async function loadSetup() {
   $('tuya-done').style.display = s.tuya_configured ? 'block' : 'none';
   $('hooks').innerHTML = Object.entries(s.webhooks).map(([p, u]) =>
     `<b>${esc(p)}</b><div class="muted">Arrive</div><div class="url">${esc(u.arrive)}</div><div class="muted">Leave</div><div class="url">${esc(u.leave)}</div>`).join('');
+  if ($('sleep-urls')) $('sleep-urls').innerHTML = Object.entries(s.webhooks).map(([p, u]) =>
+    `<b>${esc(p)}'s iPhone</b><div class="muted">Sleep Focus turns ON</div><div class="url">${esc(u.sleep_on)}</div><div class="muted">Sleep Focus turns OFF</div><div class="url">${esc(u.sleep_off)}</div>`).join('');
   if ($('owntracks')) $('owntracks').innerHTML = Object.entries(s.owntracks).map(([p, u]) =>
     `<b>${esc(p)}'s iPhone</b><div class="url">${esc(u)}</div>`).join('');
 }
