@@ -158,6 +158,8 @@ async function loadSummary() {
     }
     $('summary').innerHTML = html;
     if (!items.length) $('summary').textContent = 'Nothing to report yet.';
+    const todo = items.filter((i) => i.level === 'todo').length, tips = items.filter((i) => i.level === 'tip').length;
+    setFold('found', todo ? `${todo} to do` : tips ? `${tips} tip${tips > 1 ? 's' : ''}` : 'all good');
   } catch (_) {}
 }
 
@@ -401,6 +403,7 @@ async function loadThermal() {
        <button class="small" style="margin-top:4px" onclick="api('/api/thermal/suggestion',{days:'${s.days}',start:${s.from},end:${s.to},on:${!s.accepted}}).then(loadThermal)">${s.accepted ? '✓ Accepted – undo' : 'Accept'}</button></div>`).join('');
   }
   $('thermal').innerHTML = html;
+  setFold('thermal', t.examples && t.examples.heat_17_to_20 ? `17→20° in ${t.examples.heat_17_to_20} min` : (t.model.confident ? 'learned' : 'learning'));
 }
 async function loadSmartReport() {
   let r;
@@ -425,6 +428,7 @@ async function loadSmartReport() {
     : '<p class="muted">Nothing yet – actions will appear here as it takes them.</p>';
   html += '<p class="muted" style="font-size:11px;margin-top:6px">£ figures are estimates from your measured boiler use and gas price.</p>';
   $('smart-report').innerHTML = html;
+  setFold('smart', r.saved_total ? `~£${r.saved_total.toFixed(2)} saved` : 'starts after learning');
 }
 // ---------- Plan tab ----------
 let PLAN = null, planDay = 0;
@@ -473,12 +477,20 @@ function calibDot(st) {
   return `<span style="color:${st === 'ok' ? '#5ad19a' : st === 'learning' ? '#f0c04b' : '#6b7280'}">●</span> `;
 }
 function renderCalib() {
+  // Compact: one line per group, a dot per item; tap a line for the counts
   const groups = {};
   PLAN.calibration.forEach((c) => (groups[c.group] = groups[c.group] || []).push(c));
-  $('plan-calib').innerHTML = `<div class="muted" style="font-size:12px;margin-bottom:6px">${calibDot('ok')}calibrated &nbsp; ${calibDot('learning')}learning &nbsp; ${calibDot('none')}no data yet</div>` +
-    Object.entries(groups).map(([g, items]) => `<div style="margin-top:8px"><b style="font-size:13px">${esc(g)}</b>` +
-      items.map((c) => `<div class="row" style="font-size:13px;padding:2px 0"><span>${calibDot(c.status)}${esc(c.name)}</span><span class="muted">${esc(c.detail)}</span></div>`).join('') + '</div>').join('');
+  const short = (n) => ({Mondays: 'Mo', Tuesdays: 'Tu', Wednesdays: 'We', Thursdays: 'Th', Fridays: 'Fr', Saturdays: 'Sa', Sundays: 'Su',
+    weekdays: 'weekdays', weekends: 'weekends', weeknights: 'weeknights', 'Fri/Sat nights': 'Fri/Sat'}[n] || n);
+  const all = PLAN.calibration.length, ok = PLAN.calibration.filter((c) => c.status === 'ok').length;
+  $('plan-calib').innerHTML = `<div class="row" style="margin-bottom:4px"><b style="font-size:14px">What it has learned</b><span class="muted" style="font-size:13px">${ok} of ${all} ready</span></div>` +
+    Object.entries(groups).map(([g, items]) => `<details class="calib"><summary><span class="muted">${esc(g)}</span><span>${items.map((c) => `${calibDot(c.status)}<span style="font-size:12px;margin-right:6px">${esc(short(c.name))}</span>`).join('')}</span></summary>` +
+      items.map((c) => `<div class="row" style="font-size:12px;padding:2px 0"><span>${calibDot(c.status)}${esc(c.name)}</span><span class="muted">${esc(c.detail)}</span></div>`).join('') + '</details>').join('') +
+    `<div class="muted" style="font-size:11px;margin-top:4px">${calibDot('ok')}ready ${calibDot('learning')}learning ${calibDot('none')}no data yet · tap a line for details</div>`;
+  const ex = PLAN.recent.filter((r) => r.excluded).length;
+  setFold('untyp', ex ? `${ex} left out` : 'none left out');
 }
+function setFold(k, text) { const el = $('fs-' + k); if (el) el.textContent = text || ''; }
 function renderRecent() {
   const row = (r) => {
     const next = r.excluded ? 'include' : 'exclude';
@@ -561,6 +573,7 @@ async function loadWeekCheck(data) {
   let w = data;
   if (!w) { try { w = await api('/api/week/check'); } catch (_) { return; } }
   const people = Object.keys(w.days[0].people);
+  setFold('week', w.confirmed ? 'Confirmed' : 'To check');
   $('week-check').innerHTML = `<p class="muted" style="font-size:13px">When each of you came and went this week. Right? One tap keeps the learning clean. Wrong? Use ⚙️ → Fix a mistake.</p>
     <table style="width:100%;font-size:13px;border-collapse:collapse"><tr><td></td>${people.map((p) => `<td class="muted">${esc(p)}</td>`).join('')}</tr>` +
     w.days.map((d) => `<tr style="border-top:1px solid var(--line)"><td style="padding:5px 0;white-space:nowrap"><b>${esc(d.label)}</b></td>${people.map((p) =>
@@ -572,6 +585,7 @@ async function loadComfort() {
   try {
     const c = await api('/api/comfort');
     const per = Object.entries(c.now.per_person).map(([p, e]) => `${esc(p)} ${e.temp}°${e.confident ? '' : ' (learning)'}`).join(' · ');
+    setFold('comfort', Object.entries(c.now.per_person).map(([p, e]) => `${p} ${e.temp}°`).join(' · '));
     $('comfort-line').innerHTML = `Comfortable this ${esc(c.now.period)}: ${per}` + (c.now.who.length > 1 ? ` · together ${c.now.temp}°` : '');
     if ($('comfort-table')) {
       const periods = ['morning', 'day', 'evening', 'night'];
@@ -921,9 +935,11 @@ async function enablePush() {
 async function loadLearning() {
   const l = await api('/api/learning');
   const pct = Math.min(100, Math.round(l.days / l.target_days * 100));
-  $('learning').innerHTML = `<div class="row"><b>Day ${Math.floor(l.days)} of ${l.target_days}</b><span class="muted">${pct}%</span></div>
-    <div style="height:8px;background:var(--line);border-radius:4px;margin:6px 0 10px"><div style="height:8px;width:${pct}%;background:var(--warm);border-radius:4px"></div></div>` +
-    l.checks.map((c) => `<div style="padding:3px 0">${c.ok ? '✅' : '⚠️'} ${esc(c.name)} <span class="muted" style="font-size:13px">– ${esc(c.detail)}</span></div>`).join('');
+  const bad = l.checks.filter((c) => !c.ok);
+  $('learning').innerHTML = `<div class="row"><b style="font-size:17px">Learning · day ${Math.min(Math.floor(l.days) + 1, l.target_days)} of ${l.target_days}</b><span class="muted">${pct}%</span></div>
+    <div style="height:8px;background:var(--line);border-radius:4px;margin:8px 0 8px"><div style="height:8px;width:${pct}%;background:var(--warm);border-radius:4px"></div></div>
+    <details><summary class="muted" style="font-size:13px">${bad.length ? `⚠️ ${bad.length} data source${bad.length > 1 ? 's' : ''} need attention` : `✅ Data coming in from all ${l.checks.length} sources`} – this is the data arriving, not what's learned yet</summary>` +
+    l.checks.map((c) => `<div style="padding:3px 0;font-size:13px">${c.ok ? '✅' : '⚠️'} ${esc(c.name)} <span class="muted">– ${esc(c.detail)}</span></div>`).join('') + '</details>';
 }
 
 // ---------- monthly report ----------

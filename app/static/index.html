@@ -140,51 +140,63 @@
 
   <!-- INSIGHTS: what it has learned and what happened -->
   <section class="tab" id="tab-insights">
-    <div class="section-title">Learning</div>
-    <div class="card" id="week-card">
-      <h2>Check your week</h2>
-      <div id="week-check" class="muted">Loading…</div>
-    </div>
-<div class="card">
-      <h2>Learning</h2>
+    <!-- Progress: one compact card -->
+    <div class="card">
       <div id="learning" class="muted">Loading…</div>
+      <div id="plan-calib" style="margin-top:10px"></div>
     </div>
-<div class="card">
-      <h2>What's calibrated</h2>
-      <div id="plan-calib"></div>
-    </div>
-<div class="card">
-      <h2>Comfortable temperatures</h2>
+
+    <details class="card setting fold" id="f-week">
+      <summary><span>✅ Check your week</span><span class="status" id="fs-week"></span></summary>
+      <div class="setting-body">
+      <div id="week-check" class="muted">Loading…</div>
+          </div>
+    </details>
+    <details class="card setting fold" id="f-smart">
+      <summary><span>💷 Smart heating results</span><span class="status" id="fs-smart"></span></summary>
+      <div class="setting-body">
+<div class="row" style="justify-content:flex-end">
+        <select id="sr-days" style="width:auto" onchange="loadSmartReport()"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="365">Year</option></select></div>
+      <div id="smart-report" class="muted">Loading…</div>
+    
+          </div>
+    </details>
+    <details class="card setting fold" id="f-found">
+      <summary><span>🔎 What it's found</span><span class="status" id="fs-found"></span></summary>
+      <div class="setting-body">
+      <div id="summary" class="muted">Loading…</div>
+          </div>
+    </details>
+    <details class="card setting fold" id="f-comfort">
+      <summary><span>🌡️ Comfortable temperatures</span><span class="status" id="fs-comfort"></span></summary>
+      <div class="setting-body">
       <div id="comfort-table" class="muted">Loading…</div>
-    </div>
-<div class="card">
-      <h2>How your flat heats</h2>
+          </div>
+    </details>
+    <details class="card setting fold" id="f-thermal">
+      <summary><span>🏠 How your flat heats</span><span class="status" id="fs-thermal"></span></summary>
+      <div class="setting-body">
       <div id="thermal" class="muted">Loading…</div>
-    </div>
-<div class="card">
-      <h2>Your routine (what it's learned)</h2>
+          </div>
+    </details>
+    <details class="card setting fold" id="f-routine">
+      <summary><span>📅 Your routine</span><span class="status" id="fs-routine"></span></summary>
+      <div class="setting-body">
       <p class="muted" id="routine-meta"></p>
       <div id="routine"></div>
       <p class="muted" style="font-size:12px">Each square is one hour of the week. Darker = more often. Built from the arrive/leave shortcuts and the readings every 5 minutes over the last 4 weeks.</p>
-    </div>
-<div class="card">
-      <h2>Untypical days</h2>
+          </div>
+    </details>
+    <details class="card setting fold" id="f-untyp">
+      <summary><span>🚫 Untypical days</span><span class="status" id="fs-untyp"></span></summary>
+      <div class="setting-body">
       <p class="muted" style="font-size:13px">Bank holidays and days that look nothing like a usual one (annual leave, sick days, days away) are left out of the learning automatically. Tap a day to change it.</p>
       <div id="plan-recent"></div>
-    </div>
-    <div class="section-title">Results</div>
-<div class="card">
-      <div class="row"><h2>Smart heating report</h2>
-        <select id="sr-days" style="width:auto" onchange="loadSmartReport()"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="365">Year</option></select></div>
-      <div id="smart-report" class="muted">Loading…</div>
-    </div>
-<div class="card">
-      <h2>What it's found</h2>
-      <div id="summary" class="muted">Loading…</div>
-    </div>
-    <div class="section-title">History</div>
-<div class="card">
-      <h2>Temperatures</h2>
+          </div>
+    </details>
+    <details class="card setting fold" id="f-temps">
+      <summary><span>📈 Temperatures</span><span class="status" id="fs-temps"></span></summary>
+      <div class="setting-body">
       <div class="wrap" style="margin-bottom:8px">
         <button class="small" onclick="loadHistory(24)">24 h</button>
         <button class="small" onclick="loadHistory(72)">3 days</button>
@@ -202,11 +214,14 @@
       </div>
       <p class="muted" id="boiler-hours"></p>
       <p class="muted" id="import-status" style="font-size:12px"></p>
-    </div>
-<div class="card">
-      <h2>Activity</h2>
+          </div>
+    </details>
+    <details class="card setting fold" id="f-act">
+      <summary><span>🧾 Activity log</span><span class="status" id="fs-act"></span></summary>
+      <div class="setting-body">
       <div id="events" class="muted"></div>
-    </div>
+          </div>
+    </details>
   </section>
 
   <!-- ENERGY: money and meter -->

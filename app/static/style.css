@@ -117,3 +117,10 @@ input.switch { width: 46px; height: 28px; margin: 0; flex: 0 0 auto; accent-colo
 
 #ptr { position: fixed; top: calc(env(safe-area-inset-top) + 60px); left: 0; right: 0; height: 0; overflow: hidden; z-index: 4;
   display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; transition: height .15s; pointer-events: none; }
+
+/* Insights: foldable cards and the compact "what it has learned" list */
+details.fold > summary { font-size: 15px; padding: 13px 16px; }
+details.calib { border-top: 1px solid var(--line); }
+details.calib > summary { list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 0; font-size: 13px; }
+details.calib > summary::-webkit-details-marker { display: none; }
+details.calib > div { padding-left: 4px; }
