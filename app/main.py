@@ -280,6 +280,7 @@ def _clean_night_blips():
 async def lifespan(app):
     try:
         _clean_night_blips()
+        _clean_short_outs()
     except Exception as e:
         log.warning("cleanup: %s", e)
     tasks = [asyncio.create_task(poll_loop()), asyncio.create_task(bright_loop()), asyncio.create_task(appliance_loop())]
@@ -997,12 +998,70 @@ def set_hold(h: Hold):
 
 
 # ---------------- presence ----------------
+SHORT_OUT = 5 * 60      # out for less than this doesn't count (bins, car, a phone blip)
+
+
+def _undo_short_out(person: str) -> bool:
+    """If this person's last 'left' was under 5 minutes ago, remove it: they never really went out.
+    The 5-minute readings for that stretch are put back to them being home."""
+    with db._lock:
+        rows = db._conn.execute("SELECT rowid, ts, detail FROM events WHERE kind='presence' AND ts>=? ORDER BY ts DESC",
+                                (time.time() - SHORT_OUT,)).fetchall()
+    left = next(((rid, ts) for rid, ts, d in rows if json.loads(d).get("person") == person), None)
+    if not left or json.loads(next(d for rid, ts, d in rows if rid == left[0])).get("home") is not False:
+        return False
+    with db._lock:
+        db._conn.execute("DELETE FROM events WHERE rowid=?", (left[0],))
+        db._conn.execute("UPDATE readings SET people_home = MIN(?, COALESCE(people_home,0) + 1) WHERE ts>=?", (len(PEOPLE), left[1]))
+        prev = db._conn.execute("SELECT ts, detail FROM events WHERE kind='presence' AND ts<? ORDER BY ts DESC LIMIT 20", (left[1],)).fetchall()
+        db._conn.commit()
+    since = next((ts for ts, d in prev if json.loads(d).get("person") == person and json.loads(d).get("home")), left[1])
+    p = presence()
+    p[person] = {"home": True, "since": since}
+    db.set_state("presence", p)
+    return True
+
+
+def _clean_short_outs():
+    """One-off: remove every 'left' + 'back' pair under 5 minutes from the history, and fix the readings."""
+    if db.get_state("cleaned_short_outs"):
+        return
+    with db._lock:
+        rows = db._conn.execute("SELECT rowid, ts, detail FROM events WHERE kind='presence' ORDER BY ts").fetchall()
+    drop, fix, last_out = [], [], {}
+    for rowid, ts, detail in rows:
+        try:
+            d = json.loads(detail)
+        except ValueError:
+            continue
+        if not d.get("home"):
+            last_out[d["person"]] = (rowid, ts)
+        elif d["person"] in last_out:
+            rid, t0 = last_out.pop(d["person"])
+            if ts - t0 < SHORT_OUT:
+                drop += [rid, rowid]
+                fix.append((t0, ts))
+        else:
+            last_out.pop(d.get("person"), None)
+    with db._lock:
+        db._conn.executemany("DELETE FROM events WHERE rowid=?", [(r,) for r in drop])
+        for a, b in fix:
+            db._conn.execute("UPDATE readings SET people_home = MIN(?, COALESCE(people_home,0) + 1) WHERE ts>=? AND ts<?",
+                             (len(PEOPLE), a, b))
+        db._conn.commit()
+    db.set_state("cleaned_short_outs", len(fix))
+    if fix:
+        db.add_event("smart", {"presence": f"removed {len(fix)} trips out of under 5 minutes from the history"})
+
+
 def _set_presence(person: str, state: str, force: bool = False):
     match = next((p for p in PEOPLE if p.lower() == person.lower()), None)
     if not match:
         raise HTTPException(404, f"Unknown person. Use one of: {', '.join(PEOPLE)}")
     home = state.lower() in ("home", "arrive", "arrived", "in", "1", "true")
     p = presence()
+    if home and not p[match]["home"] and not force and _undo_short_out(match):
+        return presence()                     # back within 5 minutes: it never counted as going out
     if p[match]["home"] != home or force:
         changed = p[match]["home"] != home
         if changed or match not in db.get_state("presence", {}):
