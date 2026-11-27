@@ -55,7 +55,7 @@ function settingStatuses() {
   set('tariff', true, 'From your meter');
   const rs = ($('router-status') || {}).textContent || '';
   set('router', /report|seen|ago|now/i.test(rs), /report|seen|ago|now/i.test(rs) ? 'Reporting' : 'Not set up');
-  set('own', false, 'Optional'); set('hooks', false, 'Optional'); set('sleep', false, 'Recommended');
+  set('own', false, 'Optional'); set('hooks', false, 'Optional');
   const pushOn = 'Notification' in window && Notification.permission === 'granted';
   set('push', pushOn, pushOn ? 'On' : 'Off');
   set('features', true, '');
@@ -501,7 +501,7 @@ function renderPlanDay() {
     <div style="font-size:14px;margin:6px 0;padding:8px;border-radius:8px;background:#16263a">🧒 ${d.wake.learned
       ? `Kids usually up by <b>${d.wake.time}</b> on ${d.wake.group} (from ${d.wake.samples} mornings) – the plan has the flat warm by then`
       : `Kids' wake-up time: <b>still learning</b> (${d.wake.samples} of 3 ${d.wake.group} mornings seen) – assuming 06:30 until then`}
-      <div style="margin-top:4px">🛏️ ${d.sleep.bed_learned ? `Usually asleep by <b>${d.sleep.bed}</b> (from ${d.sleep.bed_nights} nights)` : `Bedtime: <b>assuming ${d.sleep.bed}</b> until Sleep Focus has 3 nights (${d.sleep.bed_nights} so far)`}${d.sleep.up ? ` · you're usually up by <b>${d.sleep.up}</b>` : ''}</div>
+      <div style="margin-top:4px">🛏️ ${d.sleep.bed_learned ? `Flat usually goes quiet by <b>${d.sleep.bed}</b> (from ${d.sleep.bed_nights} nights)` : `Bedtime: <b>assuming ${d.sleep.bed}</b> until it has seen 3 nights of the flat going quiet (${d.sleep.bed_nights} so far)`}${d.sleep.up ? ` · first one up by <b>${d.sleep.up}</b>` : ''}</div>
       ${PLAN.mornings.length ? `<details style="margin-top:4px"><summary class="muted" style="font-size:12px">Recent mornings</summary><div class="muted" style="font-size:12px">${PLAN.mornings.map((m) => `${esc(m.date.slice(5))} ${m.time} – ${esc(m.why)}${m.left_out ? ' (left out)' : ''}`).join('<br>')}</div></details>` : ''}</div>
     <div style="font-size:13px;margin-bottom:6px"><b>Your Hive schedule now:</b> ${d.hive.length ? hiveText(d.hive) : 'not available'}</div>`;
   if (d.special) html += `<p style="margin:4px 0">🎉 ${esc(d.special)}</p>`;
@@ -650,8 +650,7 @@ async function loadSetup() {
   $('tuya-done').style.display = s.tuya_configured ? 'block' : 'none';
   $('hooks').innerHTML = Object.entries(s.webhooks).map(([p, u]) =>
     `<b>${esc(p)}</b><div class="muted">Arrive</div><div class="url">${esc(u.arrive)}</div><div class="muted">Leave</div><div class="url">${esc(u.leave)}</div>`).join('');
-  if ($('sleep-urls')) $('sleep-urls').innerHTML = Object.entries(s.webhooks).map(([p, u]) =>
-    `<b>${esc(p)}'s iPhone</b><div class="muted">Sleep Focus turns ON</div><div class="url">${esc(u.sleep_on)}</div><div class="muted">Sleep Focus turns OFF</div><div class="url">${esc(u.sleep_off)}</div>`).join('');
+
   if ($('owntracks')) $('owntracks').innerHTML = Object.entries(s.owntracks).map(([p, u]) =>
     `<b>${esc(p)}'s iPhone</b><div class="url">${esc(u)}</div>`).join('');
 }

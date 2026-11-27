@@ -138,6 +138,11 @@ def poll_once():
             log.warning("dehumidifier: %s", e)
     from . import thermal
     try:
+        from . import sleep as _sleep
+        row.setdefault("extra", {}).update(_sleep.activity_now())
+    except Exception:
+        pass
+    try:
         # The kids are never home without one of you: with both phones out, anything on is just left on
         adults_in = (row.get("people_home") or 0) > 0 or bool(db.get_state("hold", False))
         why = thermal._wake_signal_any() if adults_in else None
@@ -1442,8 +1447,6 @@ def setup_info():
             p: {
                 "arrive": f"{PUBLIC_URL}/hook/presence?token={tok}&person={p}&state=home",
                 "leave": f"{PUBLIC_URL}/hook/presence?token={tok}&person={p}&state=away",
-                "sleep_on": f"{PUBLIC_URL}/hook/sleep?token={tok}&person={p}&state=on",
-                "sleep_off": f"{PUBLIC_URL}/hook/sleep?token={tok}&person={p}&state=off",
             } for p in PEOPLE
         },
     }

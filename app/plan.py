@@ -218,7 +218,7 @@ def day_plan(day: datetime, occ: dict, temps: dict) -> dict:
             if b["start"] < 12 * 60:
                 b["why"].append("Night – asleep until " + (f"{_fmt(first_up * 60)} (first one up, learned)" if first_up is not None else "06:30 (wake-up still being learned)"))
             else:
-                b["why"].append(f"Night – usually asleep by {_fmt(bed * 60)}" + (f" (from {bed_n} nights)" if bed_n >= 3 else " (assumed until Sleep Focus has 3 nights)"))
+                b["why"].append(f"Night – usually asleep by {_fmt(bed * 60)}" + (f" (from {bed_n} nights)" if bed_n >= 3 else " (assumed until it has seen 3 nights)"))
             continue
         if not b["warm"]:
             b["target"] = LOW
@@ -297,7 +297,7 @@ def calibration(occ: dict, temps: dict) -> list:
     from . import sleep
     for label, wd in (("weeknights", 2), ("Fri/Sat nights", 4)):
         n = sleep.bedtime(datetime.now() + timedelta(days=(wd - datetime.now().weekday()) % 7))[1]
-        add("Bedtime", label, "ok" if n >= 3 else "learning" if n else "none", f"{n} nights (Sleep Focus)" + ("" if n >= 3 else " – reliable from 3"))
+        add("Bedtime", label, "ok" if n >= 3 else "learning" if n else "none", f"{n} nights (flat going quiet)" + ("" if n >= 3 else " – reliable from 3"))
     m = thermal.model()
     add("Flat", "Warm-up speed", "ok" if (m.get("a") and m.get("heat_runs", 0) >= 5) else "learning" if m.get("heat_runs") else "none",
         f"{m.get('heat_runs', 0)} heating periods – reliable from 5")
