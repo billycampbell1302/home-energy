@@ -45,9 +45,30 @@ function onTab(tab) {
       .map((p) => `<button class="small primary" onclick="shareWith('${esc(p)}')">Share with ${esc(p)}</button>`).join('');
     fillFix(); loadSetup(); loadVersion(); loadTariffForm(); loadRouter(); loadPush(); loadThermal();
     setTimeout(settingStatuses, 1500);
+    api('/api/setup/octopus').then(showOctopus).catch(() => {});
   }
 }
 // Settings: a one-word status next to each connection so it reads like a proper settings list
+async function octopusImport() {
+  const api_key = $('oct-key').value.trim(), account = $('oct-acc').value.trim();
+  if (!api_key || !account) return toast('Add the API key and account number');
+  $('oct-status').textContent = 'Checking with Octopus…';
+  try { await api('/api/setup/octopus', {api_key, account}); } catch (e) { $('oct-status').textContent = '⚠️ ' + (e.message || 'Failed'); return; }
+  $('oct-key').value = '';
+  $('oct-status').textContent = 'Importing – this takes a minute…';
+  const poll = setInterval(async () => {
+    const s = await api('/api/setup/octopus');
+    if (s.state === 'running') return;
+    clearInterval(poll); showOctopus(s);
+  }, 4000);
+}
+function showOctopus(s) {
+  if (!$('oct-status')) return;
+  if (s.state === 'done') $('oct-status').innerHTML = `<span class="ok">✓ Imported</span> ${s.added.electricity} electricity and ${s.added.gas} gas half-hours (${esc(s.from || '')} – ${esc(s.to || '')}). Energy and costs now include them.`;
+  else if (s.state === 'error') $('oct-status').textContent = '⚠️ ' + s.error;
+  const st = $('st-octopus');
+  if (st) { st.textContent = s.state === 'done' ? 'Imported' : s.state === 'error' ? 'Failed' : 'Optional'; st.className = 'status' + (s.state === 'done' ? ' ok' : ''); }
+}
 function settingStatuses() {
   const vis = (id) => $(id) && $(id).style.display !== 'none';
   const set = (k, ok, text) => { const el = $('st-' + k); if (el) { el.textContent = text || (ok ? 'Connected' : 'Not set up'); el.className = 'status ' + (ok ? 'ok' : 'off'); } };

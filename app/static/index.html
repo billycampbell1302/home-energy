@@ -361,6 +361,17 @@
       </div>
           </div>
     </details>
+    <details class="card setting" id="set-octopus">
+      <summary><span>🐙 Import history from Octopus</span><span class="status" id="st-octopus"></span></summary>
+      <div class="setting-body">
+        <p class="muted">Fills the missing months (e.g. 19 Oct – 24 Nov) with your real half-hourly gas and electricity from when you were with Octopus. Only gaps are filled – nothing from Bright is replaced.</p>
+        <p class="muted">In the Octopus account (website): <b>Account → Personal details → API access</b>. Copy the <b>API key</b> (starts sk_live_) and the <b>account number</b> (A-XXXXXXXX).</p>
+        <input id="oct-key" placeholder="API key (sk_live_…)" autocomplete="off">
+        <input id="oct-acc" placeholder="Account number (A-…)" autocomplete="off" style="text-transform:uppercase">
+        <button class="primary" onclick="octopusImport()">Import</button>
+        <div id="oct-status" class="muted" style="margin-top:8px"></div>
+      </div>
+    </details>
     <details class="card setting" id="set-tariff">
       <summary><span>💷 Tariff</span><span class="status" id="st-tariff"></span></summary>
       <div class="setting-body">

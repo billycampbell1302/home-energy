@@ -102,7 +102,9 @@ def add_energy(rows) -> int:
     with _lock:
         before = _conn.total_changes
         _conn.executemany(
-            "INSERT INTO energy (ts, fuel, kwh) VALUES (?,?,?) ON CONFLICT(ts, fuel) DO UPDATE SET kwh=excluded.kwh",
+            "INSERT INTO energy (ts, fuel, kwh) VALUES (?,?,?) ON CONFLICT(ts, fuel) DO UPDATE SET "
+            # never replace real data with a zero (Bright fills its gaps with zeros)
+            "kwh = CASE WHEN excluded.kwh = 0 AND energy.kwh > 0 THEN energy.kwh ELSE excluded.kwh END",
             rows)
         _conn.commit()
         return _conn.total_changes - before

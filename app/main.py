@@ -1454,6 +1454,32 @@ def setup_info():
     }
 
 
+class OctopusSetup(BaseModel):
+    api_key: str
+    account: str
+
+
+@app.post("/api/setup/octopus")
+async def octopus_setup(o: OctopusSetup):
+    from . import octopus
+    try:
+        await asyncio.to_thread(octopus.meters, o.api_key.strip(), o.account)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    async def go():
+        try:
+            await asyncio.to_thread(octopus.run, o.api_key.strip(), o.account)
+        except Exception as e:
+            log.warning("Octopus import: %s", e)
+    asyncio.create_task(go())
+    return {"ok": True}
+
+
+@app.get("/api/setup/octopus")
+def octopus_status():
+    return db.get_state("octopus_status", {"state": "none"})
+
+
 @app.get("/api/setup/hive/zones")
 def hive_zones():
     if hive.is_configured():
