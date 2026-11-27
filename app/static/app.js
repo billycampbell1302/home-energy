@@ -38,7 +38,7 @@ function onTab(tab) {
     loadWeekCheck(); loadLearning(); loadPlan(); loadComfort(); loadThermal(); loadRoutine();
     loadSmartReport(); loadSummary(); loadHistory(24); loadEvents();
   }
-  if (tab === 'energy') { loadEnergy(30); loadReport(); }
+  if (tab === 'energy') { loadEnergy(30); loadReport(); loadTariffs(); }
   if (tab === 'devices') { loadAppliances(false); loadOverview(); }
   if (tab === 'setup') {
     if ($('share-btns')) $('share-btns').innerHTML = Object.keys(S.presence || {}).filter((p) => { try { return p !== localStorage.getItem('me'); } catch (_) { return true; } })
@@ -580,6 +580,43 @@ async function loadWeekCheck(data) {
       `<td style="padding:5px 4px">${d.people[p].length ? d.people[p].map(esc).join('<br>') : '<span class="muted">–</span>'}</td>`).join('')}</tr>`).join('') + '</table>' +
     (w.confirmed ? '<p class="ok" style="margin-top:8px">✓ Confirmed this week – thanks</p>'
       : `<button class="primary" style="margin-top:10px;width:100%" onclick="api('/api/week/confirm',{}).then((r)=>{loadWeekCheck(r);toast('Thanks – week confirmed')})">✓ All correct</button>`);
+}
+// ---------- tariff comparison ----------
+async function loadTariffs() {
+  let r;
+  try { r = await api('/api/tariffs/compare'); } catch (_) { return; }
+  $('peaksave').checked = !!r.peaksave;
+  const st = r.state || {};
+  if (st.state === 'running') { $('tf-msg').textContent = 'Checking every deal against your usage – takes a minute or two…'; setTimeout(loadTariffs, 5000); }
+  else if (st.state === 'error') $('tf-msg').textContent = '⚠️ ' + (st.error || 'The check failed');
+  else $('tf-msg').textContent = r.scan ? `Checked ${new Date(r.scan.made * 1000).toLocaleDateString([], {day: 'numeric', month: 'short'})} · based on ${r.scan.days} days of your use (${r.scan.from.slice(5)} to ${r.scan.to.slice(5)}), scaled to a year` : '';
+  if (r.scan) renderTariffs(r.scan);
+}
+async function tariffScan() { await api('/api/tariffs/compare', {}); loadTariffs(); }
+function renderTariffs(s) {
+  const c = s.current, cur = (c.elec || 0) + (c.gas || 0);
+  const gbp = (v) => '£' + Math.round(v).toLocaleString();
+  const diff = (v, base) => { const d = base - v; return d > 5 ? `<span class="ok">save ${gbp(d)}</span>` : d < -5 ? `<span class="muted">${gbp(-d)} more</span>` : '<span class="muted">about the same</span>'; };
+  const ok = (l) => l.filter((x) => !x.blocked);
+  const row = (x, base) => `<div class="line" style="display:block"><div class="row"><b style="font-size:14px">${esc(x.supplier)} · ${esc(x.name)}</b><span>${gbp(x.year)}</span></div>
+    <div class="row muted" style="font-size:12px"><span>${esc(x.kind)}${x.rate ? ' · ' + (typeof x.rate === 'number' ? x.rate.toFixed(1) + 'p' : esc(x.rate)) : ''} · standing ${x.standing.toFixed(1)}p/day${x.fixed ? ' · fixed' + (x.term ? ` ${x.term} months` : '') : ' · variable'}${x.exit ? ` · exit fee £${x.exit.toFixed(0)}` : ''}</span><span>${diff(x.year, base)}</span></div></div>`;
+  const e = ok(s.elec), g = ok(s.gas);
+  // best one-supplier dual fuel
+  const dual = {};
+  e.forEach((x) => { const d = dual[x.supplier] = dual[x.supplier] || {}; if (!d.e || x.year < d.e.year) d.e = x; });
+  g.forEach((x) => { const d = dual[x.supplier] = dual[x.supplier] || {}; if (!d.g || x.year < d.g.year) d.g = x; });
+  const duals = Object.entries(dual).filter(([, d]) => d.e && d.g).map(([sup, d]) => ({sup, total: d.e.year + d.g.year, d})).sort((a, b) => a.total - b.total);
+  const best = duals[0];
+  setFold('tariffs', best && cur - best.total > 20 ? `could save ~${gbp(cur - best.total)}/yr` : 'you\'re on a good deal');
+  $('tf-out').innerHTML = `<div class="card" style="margin:10px 0"><div class="row"><b>Your British Gas deal</b><b>${gbp(cur)}/yr</b></div>
+      <div class="muted" style="font-size:13px">Electricity ${gbp(c.elec)} · Gas ${c.gas ? gbp(c.gas) : '–'}${c.peaksave ? ' · includes PeakSave Sundays' : ''}</div></div>` +
+    (duals.length ? '<h3 style="font-size:15px;margin:12px 0 4px">Best switch, one supplier for both</h3>' + duals.slice(0, 3).map((x) =>
+      `<div class="line" style="display:block"><div class="row"><b>${esc(x.sup)}</b><span>${gbp(x.total)}/yr</span></div><div class="row muted" style="font-size:12px"><span>${esc(x.d.e.name)} + ${esc(x.d.g.name)}</span><span>${diff(x.total, cur)}</span></div></div>`).join('') : '') +
+    '<h3 style="font-size:15px;margin:14px 0 4px">Electricity</h3>' + e.slice(0, 8).map((x) => row(x, c.elec)).join('') +
+    (g.length ? '<h3 style="font-size:15px;margin:14px 0 4px">Gas</h3>' + g.slice(0, 6).map((x) => row(x, c.gas || 0)).join('') : '') +
+    `<details style="margin-top:10px"><summary class="muted" style="font-size:13px">Not open to you (${s.elec.length - e.length + s.gas.length - g.length})</summary>` +
+    s.elec.concat(s.gas).filter((x) => x.blocked).map((x) => `<div class="muted" style="font-size:12px;padding:3px 0">${esc(x.supplier)} · ${esc(x.name)} – ${esc(x.blocked)}</div>`).join('') + '</details>' +
+    `<p class="muted" style="font-size:12px;margin-top:8px">Half-hourly deals (like Agile) need your smart meter switched to half-hourly – the new supplier does that. Your British Gas fix may have an exit fee. A year is scaled up from the last 30 days, so winter months make it read high – compare the deals against each other rather than the exact £.</p>`;
 }
 async function loadComfort() {
   try {

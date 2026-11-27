@@ -41,6 +41,14 @@ def check(errors: dict):
     notify.once("down_router", bool(last) and now - last > DOWN_AFTER, "service_down",
                 "Router stopped reporting", "Phone and Fire Stick detection is paused. Check the router's scheduled task.")
 
+    # Tariff comparison: refresh weekly in the background
+    st = db.get_state("tariff_scan_state", {})
+    if time.time() - st.get("ts", 0) > 7 * 86400 and st.get("state") != "running":
+        import threading
+        from . import tariffs
+        db.set_state("tariff_scan_state", {"state": "running", "ts": int(time.time())})
+        threading.Thread(target=lambda: _safe(tariffs.scan), daemon=True).start()
+
     # Weekly presence check: Sunday 18:00, a nudge to confirm the week's comings and goings
     lt = time.localtime()
     if lt.tm_wday == 6 and lt.tm_hour == 18 and lt.tm_min < 10:
@@ -153,3 +161,10 @@ def check(errors: dict):
             r = report.current_and_previous()["last"]
             notify.send("monthly", f"Your {r['label']} energy report", report.summary_text(r))
             db.set_state(key, True)
+
+
+def _safe(fn):
+    try:
+        fn()
+    except Exception:
+        pass

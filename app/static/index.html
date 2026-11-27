@@ -226,6 +226,16 @@
 
   <!-- ENERGY: money and meter -->
   <section class="tab" id="tab-energy">
+    <details class="card setting fold" id="f-tariffs">
+      <summary><span>🔁 Compare tariffs</span><span class="status" id="fs-tariffs"></span></summary>
+      <div class="setting-body">
+        <p class="muted" style="font-size:13px">Every deal open to you from Octopus, EDF and E.ON Next, priced on <b>your own</b> half-hourly use from the last 30 days, standing charges included, and scaled to a year. British Gas doesn't publish its prices, so other British Gas deals can't be compared.</p>
+        <label class="row" style="padding:6px 0"><span>I've joined British Gas <b>PeakSave Sundays</b> (half-price 11am–4pm)</span><input type="checkbox" class="switch" id="peaksave" onchange="api('/api/peaksave',{on:this.checked})"></label>
+        <button class="primary" id="tf-scan" onclick="tariffScan()">Check deals now</button>
+        <div id="tf-msg" class="muted" style="margin-top:8px"></div>
+        <div id="tf-out"></div>
+      </div>
+    </details>
 <div class="card">
       <h2>This month</h2>
       <div id="report" class="muted">Loading…</div>

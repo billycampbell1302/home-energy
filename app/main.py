@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import logging
+import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -792,6 +793,38 @@ def week_confirm():
     db.set_state("weeks_confirmed", (db.get_state("weeks_confirmed", []) + [wk])[-60:])
     db.add_event("smart", {"week_check": f"week {wk} comings and goings confirmed"})
     return week_check()
+
+
+@app.get("/api/tariffs/compare")
+def tariffs_compare():
+    return {"scan": db.get_state("tariff_scan"), "state": db.get_state("tariff_scan_state", {"state": "none"}),
+            "peaksave": bool(db.get_state("peaksave"))}
+
+
+@app.post("/api/tariffs/compare")
+def tariffs_compare_start():
+    from . import tariffs
+    st = db.get_state("tariff_scan_state", {})
+    if st.get("state") == "running" and time.time() - st.get("ts", 0) < 600:
+        return tariffs_compare()
+    def go():
+        try:
+            tariffs.scan()
+        except Exception as e:
+            log.warning("tariff scan: %s", e)
+    threading.Thread(target=go, daemon=True).start()
+    db.set_state("tariff_scan_state", {"state": "running", "ts": int(time.time())})
+    return tariffs_compare()
+
+
+class Flag(BaseModel):
+    on: bool
+
+
+@app.post("/api/peaksave")
+def peaksave(f: Flag):
+    db.set_state("peaksave", f.on)
+    return {"peaksave": f.on}
 
 
 @app.get("/api/routine")
