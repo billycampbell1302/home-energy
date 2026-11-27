@@ -108,7 +108,8 @@ def wash_state(a: dict) -> dict:
     total = _num(st, "Selected_program_total_time_in_minutes", "Selected_program_total_running_time_in_minutes")
     status = _num(st, "machine_status")
     phase = _num(st, "Current_program_phase")
-    # Running: the machine says so, or the countdown has started
+    # From this machine's own readings: machine_status 2 = running, 0 = idle; Door_status 3 = locked (running);
+    # dry_time = drying minutes in the programme (washer-dryer). Running: the machine says so, or the countdown has started
     running = bool((status not in (None, 0)) or (rem is not None and total and 0 < rem < total))
     kwh = None
     i, d = _num(st, "Electricit_consumption_int"), _num(st, "Electricit_consumption_decimal")
@@ -117,7 +118,7 @@ def wash_state(a: dict) -> dict:
     return {"running": running and not a.get("offline"), "remaining_min": int(rem) if rem is not None else None,
             "finish_ts": int(time.time() + rem * 60) if running and rem else None,
             "drying": (_num(st, "dry_time") or 0) > 0, "phase": phase, "status": status, "kwh": kwh,
-            "door_open": _num(st, "Door_status") == 1, "delay_end": _num(st, "DelayEndTime")}
+            "door_locked": _num(st, "Door_status") == 3, "delay_end": _num(st, "DelayEndTime")}
 
 
 def track_runs():
