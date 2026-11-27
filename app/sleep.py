@@ -2,9 +2,10 @@
 in the morning - no Sleep Focus (that runs on a fixed schedule, not when you actually sleep).
 
 Every 5 minutes the reading records whether there's any sign of someone awake:
-  • a phone in use (a phone on the home Wi-Fi moving data like browsing/scrolling - big steady transfers
-    like overnight iCloud backups are ignored). iPads and tablets never count - they're watched in bed.
-  • a Fire Stick streaming
+  • an adult's phone in use (browsing/scrolling - big steady transfers like iCloud backups are ignored).
+    Adults' iPads never count (watched in bed) - set them to Ignore in Router.
+  • the kids' tablets or the kids' Fire Sticks in use (devices set to "Kids" in Router)
+  • NOT the living-room Fire Stick (devices set to "Fire Stick / TV")
   • a light switched or changed, the kids up and about, a heating change
 Bedtime = the last sign of life in the evening followed by 90+ quiet minutes.
 Getting up = the first sign of life in the morning after 3+ quiet hours.
@@ -36,15 +37,16 @@ def activity_now() -> dict:
             phones[role[7:]] = max(phones.get(role[7:], 0), kbps)
     phone_use = any(PHONE_MIN_KBPS <= v < BACKUP_KBPS for v in phones.values())
     try:
-        streaming = bool(router.streaming())
+        streaming = bool(router.streaming())                 # living-room Fire Stick: recorded, but NOT "awake"
+        kids_devices = bool(router.kids_devices_in_use())    # kids' tablets and kids' Fire Sticks: count
     except Exception:
-        streaming = False
+        streaming = kids_devices = False
     act = db.get_state("light_activity", {})
     lights = any(time.time() - t < 10 * 60 for t in act.values())
     own = time.time() - db.get_state("hive_last_own_change", 0) < 10 * 60
     manual = any(e["kind"] == "manual" and e["ts"] > time.time() - 600 for e in db.recent_events(10))
-    return {"awake": bool(phone_use or streaming or lights or (manual and not own)),
-            "phones": phones, "stream": streaming, "lights": lights}
+    return {"awake": bool(phone_use or kids_devices or lights or (manual and not own)),
+            "phones": phones, "stream": streaming, "kids_devices": kids_devices, "lights": lights}
 
 
 def _nights(weekend_night: bool, mornings: bool = False) -> list:
@@ -60,8 +62,8 @@ def _nights(weekend_night: bool, mornings: bool = False) -> list:
         except ValueError:
             e = {}
         if "awake" in e:
-            # evenings: only phones, TV, lights, heating (tablets/iPads never count - watched in bed)
-            # mornings: the kids being up counts too (that's when it needs to be warm)
+            # evenings: adults' phones, kids' devices, lights, heating (living-room TV and adults' iPads don't count)
+            # mornings: anything showing the kids are up counts too (that's when it needs to be warm)
             seq.append((ts, bool(e["awake"]), bool(ph), bool(e.get("kids_active"))))
     out = []
     days = sorted({datetime.fromtimestamp(t).date() for t, *_ in seq})
